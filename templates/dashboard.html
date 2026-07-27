@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - Pocket Log Analyzer{% endblock %}
+{% block content %}
+<div class="dashboard">
+    <div class="header-bar">
+        <h2>Dashboard</h2>
+        <div class="header-actions">
+            <label for="uploadInput" class="btn-primary btn-upload">Import CSV</label>
+            <input type="file" id="uploadInput" accept=".csv" style="display:none">
+            <button id="scanBtn" class="btn-primary">Scan Folder</button>
+        </div>
+    </div>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <span class="stat-label">Total Flights</span>
+            <span class="stat-value">{{ stats.total_flights }}</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-label">Total Distance</span>
+            <span class="stat-value">{{ "%.2f"|format(stats.total_distance_km) }} km</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-label">Total Duration</span>
+            <span class="stat-value">{{ "%.0f"|format(stats.total_duration_s / 60) }} min</span>
+        </div>
+    </div>
+
+    <div class="chart-row">
+        <div class="chart-container chart-box">
+            <h3>Flights per Day</h3>
+            <canvas id="dailyChart"></canvas>
+        </div>
+        <div class="chart-container chart-box">
+            <h3>Distance per Week</h3>
+            <canvas id="weeklyChart"></canvas>
+        </div>
+    </div>
+
+    <div class="chart-box-wide">
+        <h3>Battery Health</h3>
+        <div style="position:relative;max-height:250px;"><canvas id="batteryChart"></canvas></div>
+    </div>
+
+    <div class="tables-section">
+        <div class="table-box">
+            <h3>Daily Summary</h3>
+            <table>
+                <thead><tr><th>Date</th><th>Flights</th><th>Distance (km)</th><th>Duration (min)</th></tr></thead>
+                <tbody>
+                {% for d in stats.daily %}
+                <tr><td>{{ d.period }}</td><td>{{ d.count }}</td><td>{{ "%.2f"|format(d.distance) }}</td><td>{{ "%.0f"|format(d.duration / 60) }}</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="table-box">
+            <h3>Weekly Summary</h3>
+            <table>
+                <thead><tr><th>Week</th><th>Flights</th><th>Distance (km)</th><th>Duration (min)</th></tr></thead>
+                <tbody>
+                {% for w in stats.weekly %}
+                <tr><td>{{ w.period }}</td><td>{{ w.count }}</td><td>{{ "%.2f"|format(w.distance) }}</td><td>{{ "%.0f"|format(w.duration / 60) }}</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="table-box">
+            <h3>Monthly Summary</h3>
+            <table>
+                <thead><tr><th>Month</th><th>Flights</th><th>Distance (km)</th><th>Duration (min)</th></tr></thead>
+                <tbody>
+                {% for m in stats.monthly %}
+                <tr><td>{{ m.period }}</td><td>{{ m.count }}</td><td>{{ "%.2f"|format(m.distance) }}</td><td>{{ "%.0f"|format(m.duration / 60) }}</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+<script>
+const daily = {{ stats.daily | tojson }};
+const weekly = {{ stats.weekly | tojson }};
+
+new Chart(document.getElementById('dailyChart'), {
+    type: 'bar',
+    data: {
+        labels: daily.map(d => d.period),
+        datasets: [{
+            label: 'Flights',
+            data: daily.map(d => d.count),
+            backgroundColor: 'rgba(0, 212, 255, 0.6)',
+            borderColor: 'rgb(0, 212, 255)',
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        scales: {y: {beginAtZero: true, ticks: {stepSize: 1}}},
+        plugins: {legend: {display: false}}
+    }
+});
+
+new Chart(document.getElementById('weeklyChart'), {
+    type: 'bar',
+    data: {
+        labels: weekly.map(w => w.period),
+        datasets: [{
+            label: 'Distance (km)',
+            data: weekly.map(w => w.distance),
+            backgroundColor: 'rgba(75, 192, 192, 0.6)',
+            borderColor: 'rgb(75, 192, 192)',
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        scales: {y: {beginAtZero: true}},
+        plugins: {legend: {display: false}}
+    }
+});
+
+fetch('/flight/api/battery-health').then(r => r.json()).then(data => {
+    if (!data.length) return;
+    const labels = data.map(d => d.date);
+    new Chart(document.getElementById('batteryChart'), {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                {label: 'Start V', data: data.map(d => d.start_v), borderColor: '#22c55e', tension: 0.3, pointRadius: 4},
+                {label: 'End V', data: data.map(d => d.end_v), borderColor: '#ef4444', tension: 0.3, pointRadius: 4},
+                {label: 'Min V', data: data.map(d => d.min_v), borderColor: '#f59e0b', tension: 0.3, pointRadius: 4}
+            ]
+        },
+        options: {
+            responsive: true,
+            plugins: {title: {display: true, text: 'Battery Voltage per Flight'}},
+            scales: {y: {beginAtZero: false}}
+        }
+    });
+});
+
+document.getElementById('scanBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('scanBtn');
+    btn.textContent = 'Scanning...';
+    btn.disabled = true;
+    try {
+        const res = await fetch('/flight/api/scan', { method: 'POST' });
+        const data = await res.json();
+        if (data.imported && data.imported.length > 0) {
+            alert('Imported ' + data.imported.length + ' new flight(s)');
+            window.location.reload();
+        } else {
+            alert('No new flights found');
+        }
+    } catch(e) {
+        alert('Error scanning: ' + e.message);
+    }
+    btn.textContent = 'Scan Folder';
+    btn.disabled = false;
+});
+
+document.getElementById('uploadInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+            const res = await fetch('/flight/api/upload', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (data.imported) {
+            alert('Imported: ' + data.imported);
+            window.location.reload();
+        } else {
+            alert('Error: ' + (data.error || 'unknown'));
+        }
+    } catch(e) {
+        alert('Upload error: ' + e.message);
+    }
+    e.target.value = '';
+});
+</script>
+{% endblock %}

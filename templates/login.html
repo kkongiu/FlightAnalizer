@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Pocket Log Analyzer</title>
+    <link rel="stylesheet" href="/flight/static/style.css">
+    <style>
+        .login-wrapper {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 80vh;
+        }
+        .login-box {
+            background: white;
+            padding: 3rem 2rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+            width: 340px;
+            text-align: center;
+        }
+        .login-box h1 {
+            font-size: 1.5rem;
+            color: #1a1a2e;
+            margin-bottom: 0.3rem;
+        }
+        .login-box p {
+            color: #888;
+            font-size: 0.85rem;
+            margin-bottom: 1.5rem;
+        }
+        .login-box input {
+            width: 100%;
+            padding: 0.7rem;
+            margin-bottom: 1rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 1rem;
+            box-sizing: border-box;
+        }
+        .login-box input:focus {
+            border-color: #00d4ff;
+            outline: none;
+        }
+        .login-box button {
+            width: 100%;
+            padding: 0.7rem;
+            background: #00d4ff;
+            color: #1a1a2e;
+            border: none;
+            border-radius: 4px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .login-box button:hover {
+            background: #0099cc;
+        }
+        .login-box .error {
+            color: #ef4444;
+            font-size: 0.85rem;
+            margin-top: 0.8rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-wrapper">
+        <div class="login-box">
+            <h1>Pocket Log Analyzer</h1>
+            <p>Sign in to continue</p>
+            <input type="text" id="user" placeholder="Username" autocomplete="username">
+            <input type="password" id="pass" placeholder="Password" autocomplete="current-password">
+            <button id="loginBtn">Sign In</button>
+            <div class="error" id="errorMsg"></div>
+        </div>
+    </div>
+    <script>
+        document.getElementById('loginBtn').addEventListener('click', async () => {
+            const user = document.getElementById('user').value;
+            const pass = document.getElementById('pass').value;
+            const err = document.getElementById('errorMsg');
+            err.textContent = '';
+            try {
+                const res = await fetch('/flight/login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({user, pass})
+                });
+                if (res.ok) {
+                    window.location.href = '/flight/';
+                } else {
+                    err.textContent = 'Invalid username or password';
+                }
+            } catch(e) {
+                err.textContent = 'Connection error';
+            }
+        });
+        document.getElementById('user').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('loginBtn').click(); });
+        document.getElementById('pass').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('loginBtn').click(); });
+    </script>
+</body>
+</html>

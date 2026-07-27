@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}Flights - Pocket Log Analyzer{% endblock %}
+{% block content %}
+<div class="flights-list">
+    <div class="header-bar">
+        <h2>Flights</h2>
+        <div class="header-actions">
+            <label for="uploadInput" class="btn-primary btn-upload">Import CSV</label>
+            <input type="file" id="uploadInput" accept=".csv" style="display:none">
+            <button id="scanBtn" class="btn-primary">Scan Folder</button>
+        </div>
+    </div>
+    <div class="search-bar">
+        <input type="text" id="searchInput" class="search-input" placeholder="Search by filename or date...">
+    </div>
+    {% if flights %}
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Time</th>
+                    <th>Duration</th>
+                    <th>Distance</th>
+                    <th>Max Alt</th>
+                    <th>Max Speed</th>
+                    <th>Battery End</th>
+                    <th>Filename</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody id="flightsBody">
+            {% for f in flights %}
+                <tr class="flight-row" data-filename="{{ f.filename }}" data-date="{{ f.date }}">
+                    <td>{{ f.date }}</td>
+                    <td>{{ f.start_time }}</td>
+                    <td>{{ "%.0f"|format(f.duration_s) }}s</td>
+                    <td>{{ "%.2f"|format(f.distance_km) }} km</td>
+                    <td>{{ "%.0f"|format(f.max_alt_m) }} m</td>
+                    <td>{{ "%.0f"|format(f.max_speed_kmh) }} km/h</td>
+                    <td>{{ "%.1f"|format(f.battery_end_v) }}V</td>
+                    <td><a href="/flight/flight/{{ f.filename }}">{{ f.filename }}</a></td>
+                    <td><button class="btn-danger btn-sm delete-btn" data-name="{{ f.filename }}">Delete</button></td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="pagination" id="pagination"></div>
+    {% else %}
+    <div class="empty-state">
+        <p>No flights found. Import a CSV file or click "Scan Folder".</p>
+    </div>
+    {% endif %}
+</div>
+<script>
+const PAGE_SIZE = 20;
+let currentPage = 1;
+const allRows = Array.from(document.querySelectorAll('.flight-row'));
+
+function filterRows() {
+    const q = document.getElementById('searchInput').value.toLowerCase();
+    return allRows.filter(r => {
+        return r.getAttribute('data-filename').toLowerCase().includes(q)
+            || r.getAttribute('data-date').includes(q);
+    });
+}
+
+function renderPage() {
+    const matching = filterRows();
+    const totalPages = Math.max(1, Math.ceil(matching.length / PAGE_SIZE));
+    if (currentPage > totalPages) currentPage = totalPages;
+
+    allRows.forEach(r => r.style.display = 'none');
+    const start = (currentPage - 1) * PAGE_SIZE;
+    const end = start + PAGE_SIZE;
+    matching.slice(start, end).forEach(r => r.style.display = '');
+
+    const pag = document.getElementById('pagination');
+    if (totalPages <= 1) { pag.innerHTML = ''; return; }
+    pag.innerHTML = `
+        <button onclick="currentPage=Math.max(1,currentPage-1);renderPage()" ${currentPage<=1?'disabled':''}>&laquo; Prev</button>
+        <span>Page ${currentPage} / ${totalPages} (${matching.length} flights)</span>
+        <button onclick="currentPage=Math.min(${totalPages},currentPage+1);renderPage()" ${currentPage>=totalPages?'disabled':''}>Next &raquo;</button>
+    `;
+}
+
+document.getElementById('searchInput').addEventListener('input', () => { currentPage = 1; renderPage(); });
+if (allRows.length > PAGE_SIZE) renderPage();
+
+document.querySelectorAll('.delete-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        const name = btn.getAttribute('data-name');
+        if (!confirm('Delete flight ' + name + '?')) return;
+        try {
+            const res = await fetch('/flight/api/flights/' + encodeURIComponent(name), { method: 'DELETE' });
+            if (res.ok) { window.location.reload(); }
+            else { alert('Delete failed'); }
+        } catch(e) { alert('Error: ' + e.message); }
+    });
+});
+
+document.getElementById('scanBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('scanBtn');
+    btn.textContent = 'Scanning...'; btn.disabled = true;
+    try {
+        const res = await fetch('/flight/api/scan', { method: 'POST' });
+        const data = await res.json();
+        if (data.imported.length) { alert('Imported ' + data.imported.length + ' flight(s)'); window.location.reload(); }
+        else { alert('No new flights found'); }
+    } catch(e) { alert('Error: ' + e.message); }
+    btn.textContent = 'Scan Folder'; btn.disabled = false;
+});
+
+document.getElementById('uploadInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const fd = new FormData(); fd.append('file', file);
+    try {
+        const res = await fetch('/flight/api/upload', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.imported) { alert('Imported: ' + data.imported); window.location.reload(); }
+        else { alert('Error: ' + (data.error || 'unknown')); }
+    } catch(e) { alert('Upload error: ' + e.message); }
+    e.target.value = '';
+});
+</script>
+{% endblock %}

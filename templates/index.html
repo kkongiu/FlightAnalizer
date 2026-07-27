@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - Pocket Log Analyzer{% endblock %}
+{% block content %}
+<div class="dashboard">
+    <div class="header-bar">
+        <h2>Flights</h2>
+        <div class="header-actions">
+            <label for="uploadInput" class="btn-primary btn-upload">Import CSV</label>
+            <input type="file" id="uploadInput" accept=".csv" style="display:none">
+            <button id="scanBtn" class="btn-primary">Scan Folder</button>
+        </div>
+    </div>
+    {% if flights %}
+    <div class="flights-grid">
+        {% for f in flights %}
+        <div class="flight-card">
+            <div class="flight-card-header">
+                <span class="flight-date">{{ f.date }}</span>
+                <span class="flight-time">{{ f.start_time }}</span>
+            </div>
+            <div class="flight-card-body">
+                <div class="metric"><span class="metric-label">Duration</span><span class="metric-value">{{ "%.1f"|format(f.duration_s) }}s</span></div>
+                <div class="metric"><span class="metric-label">Distance</span><span class="metric-value">{{ "%.2f"|format(f.distance_km) }}km</span></div>
+                <div class="metric"><span class="metric-label">Max Alt</span><span class="metric-value">{{ "%.0f"|format(f.max_alt_m) }}m</span></div>
+                <div class="metric"><span class="metric-label">Max Speed</span><span class="metric-value">{{ "%.0f"|format(f.max_speed_kmh) }}km/h</span></div>
+                <div class="metric"><span class="metric-label">RSSI Min</span><span class="metric-value">{{ f.min_rssi_db }}dB</span></div>
+                <div class="metric"><span class="metric-label">Battery</span><span class="metric-value">{{ "%.1f"|format(f.battery_end_v) }}V / {{ "%.0f"|format(f.battery_end_pct) }}%</span></div>
+                <div class="metric"><span class="metric-label">Mode</span><span class="metric-value">{{ f.flight_modes | dict2str }}</span></div>
+            </div>
+            <a href="/flight/flight/{{ f.filename }}" class="card-link">View Details</a>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <p>No flights found. Import a CSV file or click "Scan Folder".</p>
+    </div>
+    {% endif %}
+</div>
+<script>
+document.getElementById('scanBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('scanBtn');
+    btn.textContent = 'Scanning...';
+    btn.disabled = true;
+    try {
+        const res = await fetch('/flight/api/scan', { method: 'POST' });
+        const data = await res.json();
+        if (data.imported && data.imported.length > 0) {
+            alert('Imported ' + data.imported.length + ' new flight(s)');
+            window.location.reload();
+        } else {
+            alert('No new flights found');
+        }
+    } catch(e) {
+        alert('Error scanning: ' + e.message);
+    }
+    btn.textContent = 'Scan Folder';
+    btn.disabled = false;
+});
+
+document.getElementById('uploadInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+        const res = await fetch('/flight/api/upload', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (data.imported) {
+            alert('Imported: ' + data.imported);
+            window.location.reload();
+        } else {
+            alert('Error: ' + (data.error || 'unknown'));
+        }
+    } catch(e) {
+        alert('Upload error: ' + e.message);
+    }
+    e.target.value = '';
+});
+</script>
+{% endblock %}

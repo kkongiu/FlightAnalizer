@@ -1,0 +1,296 @@
+{% extends "base.html" %}
+{% block title %}{{ flight.date }} {{ flight.start_time }} - Pocket Log Analyzer{% endblock %}
+{% block content %}
+<div class="flight-detail">
+    <div class="back-link">
+        <a href="/flight/flights">&larr; Back to Flights</a>
+        <span style="float:right;">
+            {% if prev %}<a href="/flight/flight/{{ prev }}" style="margin-right:1rem;">&larr; Previous</a>{% endif %}
+            {% if next %}<a href="/flight/flight/{{ next }}">Next &rarr;</a>{% endif %}
+        </span>
+    </div>
+
+    <div class="flight-header">
+        <h2>{{ flight.date }} {{ flight.start_time }}</h2>
+        <span class="filename">{{ flight.filename }}</span>
+        <div style="margin-top:0.8rem;display:flex;gap:0.5rem;flex-wrap:wrap;">
+            <a class="btn-primary" href="/flight/api/export/{{ flight.filename }}?format=gpx" style="text-decoration:none;font-size:0.85rem;">Export GPX</a>
+            <a class="btn-primary" href="/flight/api/export/{{ flight.filename }}?format=kml" style="text-decoration:none;font-size:0.85rem;">Export KML</a>
+            <label class="btn-primary" for="gpxFileInput" style="font-size:0.85rem;cursor:pointer;" id="importGpxLabel">Import GPX</label>
+            <input type="file" id="gpxFileInput" accept=".gpx" style="display:none;">
+            <button class="btn-danger btn-sm" id="deleteBtn">Delete Flight</button>
+        </div>
+    </div>
+
+    <div class="stats-grid">
+        <div class="stat-card"><span class="stat-label">Duration</span><span class="stat-value">{{ "%.1f"|format(flight.duration_s) }}s</span></div>
+        <div class="stat-card"><span class="stat-label">Distance</span><span class="stat-value">{{ "%.2f"|format(flight.distance_km) }}km</span></div>
+        <div class="stat-card"><span class="stat-label">Max Altitude</span><span class="stat-value">{{ "%.0f"|format(flight.max_alt_m) }}m</span></div>
+        <div class="stat-card"><span class="stat-label">Min Altitude</span><span class="stat-value">{{ "%.0f"|format(flight.min_alt_m) }}m</span></div>
+        <div class="stat-card"><span class="stat-label">Avg Altitude</span><span class="stat-value">{{ "%.0f"|format(flight.avg_alt_m) }}m</span></div>
+        <div class="stat-card"><span class="stat-label">Max Speed</span><span class="stat-value">{{ "%.0f"|format(flight.max_speed_kmh) }}km/h</span></div>
+        <div class="stat-card"><span class="stat-label">Avg Speed</span><span class="stat-value">{{ "%.0f"|format(flight.avg_speed_kmh) }}km/h</span></div>
+        <div class="stat-card"><span class="stat-label">Max VSpeed</span><span class="stat-value">{{ "%.1f"|format(flight.max_vspd_ms) }}m/s</span></div>
+        <div class="stat-card"><span class="stat-label">RSSI Min</span><span class="stat-value">{{ flight.min_rssi_db }}dB</span></div>
+        <div class="stat-card"><span class="stat-label">RSSI Avg</span><span class="stat-value">{{ "%.1f"|format(flight.avg_rssi_db) }}dB</span></div>
+        <div class="stat-card"><span class="stat-label">RSSI Max</span><span class="stat-value">{{ flight.max_rssi_db }}dB</span></div>
+        <div class="stat-card"><span class="stat-label">Link Quality Min</span><span class="stat-value">{{ flight.min_rqly }}%</span></div>
+        <div class="stat-card"><span class="stat-label">Link Quality Avg</span><span class="stat-value">{{ "%.1f"|format(flight.avg_rqly) }}%</span></div>
+        <div class="stat-card"><span class="stat-label">Battery Start</span><span class="stat-value">{{ "%.2f"|format(flight.battery_start_v) }}V / {{ "%.0f"|format(flight.battery_start_pct) }}%</span></div>
+        <div class="stat-card"><span class="stat-label">Battery End</span><span class="stat-value">{{ "%.2f"|format(flight.battery_end_v) }}V / {{ "%.0f"|format(flight.battery_end_pct) }}%</span></div>
+        <div class="stat-card"><span class="stat-label">Battery Min</span><span class="stat-value">{{ "%.2f"|format(flight.battery_min_v) }}V</span></div>
+        <div class="stat-card"><span class="stat-label">Consumed</span><span class="stat-value">{{ "%.0f"|format(flight.battery_consumed_mah) }}mAh</span></div>
+        <div class="stat-card"><span class="stat-label">Max Current</span><span class="stat-value">{{ "%.1f"|format(flight.max_current_a) }}A</span></div>
+        <div class="stat-card"><span class="stat-label">Tx Battery</span><span class="stat-value">{{ "%.1f"|format(flight.txbat_v) }}V</span></div>
+        <div class="stat-card"><span class="stat-label">Max Sats</span><span class="stat-value">{{ flight.sats_max }}</span></div>
+        <div class="stat-card"><span class="stat-label">Flight Modes</span><span class="stat-value">{{ flight.flight_modes | dict2str }}</span></div>
+    </div>
+
+    <div class="notes-section">
+        <h3>Notes</h3>
+        <textarea id="notesText" placeholder="Add notes about this flight...">{{ flight.notes or '' }}</textarea>
+        <button class="btn-primary" id="saveNotesBtn" style="margin-top:0.5rem;font-size:0.85rem;">Save Notes</button>
+        <span id="notesStatus" style="margin-left:0.5rem;font-size:0.85rem;color:#888;"></span>
+    </div>
+
+    <div class="map-section">
+        <h3>Flight Track</h3>
+        <div id="map" style="height: 500px; width: 100%;"></div>
+    </div>
+
+    <div class="charts-section">
+        <h3>Telemetry Graphs</h3>
+        <div class="chart-row">
+            <div class="chart-container"><canvas id="altitudeChart"></canvas></div>
+            <div class="chart-container"><canvas id="speedChart"></canvas></div>
+        </div>
+        <div class="chart-row">
+            <div class="chart-container"><canvas id="rssiChart"></canvas></div>
+            <div class="chart-container"><canvas id="batteryChart"></canvas></div>
+        </div>
+    </div>
+</div>
+
+<script>
+const flight = {{ flight | tojson }};
+const coords = flight.coordinates || [];
+const filename = {{ flight.filename | tojson }};
+
+function deleteFlight(name) {
+    if (!confirm('Delete this flight?')) return;
+    fetch('/flight/api/flights/' + encodeURIComponent(name), { method: 'DELETE' })
+        .then(r => { if (r.ok) window.location.href = '/flight/flights'; else alert('Delete failed'); })
+        .catch(e => alert('Error: ' + e.message));
+}
+
+document.getElementById('deleteBtn').addEventListener('click', () => deleteFlight(filename));
+document.getElementById('saveNotesBtn').addEventListener('click', saveNotes);
+
+document.getElementById('gpxFileInput').addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const label = document.getElementById('importGpxLabel');
+    const origText = label.textContent;
+    label.textContent = 'Importing...';
+    label.style.opacity = '0.6';
+    label.style.pointerEvents = 'none';
+    const formData = new FormData();
+    formData.append('file', file);
+    fetch('/flight/api/flights/' + encodeURIComponent(filename) + '/import-gpx', {
+        method: 'POST',
+        body: formData
+    }).then(r => r.json().then(d => ({ok: r.ok, data: d})))
+    .then(({ok, data}) => {
+        if (ok) {
+            alert('GPX imported: ' + data.points + ' points');
+            window.location.reload();
+        } else {
+            alert('Error: ' + (data.error || 'Import failed'));
+            label.textContent = origText;
+            label.style.opacity = '1';
+            label.style.pointerEvents = 'auto';
+        }
+    }).catch(err => {
+        alert('Error: ' + err.message);
+        label.textContent = origText;
+        label.style.opacity = '1';
+        label.style.pointerEvents = 'auto';
+    });
+    e.target.value = '';
+});
+
+function saveNotes() {
+    const notes = document.getElementById('notesText').value;
+    const status = document.getElementById('notesStatus');
+    fetch('/flight/api/flights/' + encodeURIComponent(filename) + '/notes', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({notes})
+    }).then(r => {
+        status.textContent = r.ok ? 'Saved' : 'Error';
+        setTimeout(() => status.textContent = '', 2000);
+    }).catch(() => status.textContent = 'Error');
+}
+
+function smoothCoords(arr, window) {
+    const half = Math.floor(window / 2);
+    return arr.map((_, i) => {
+        let sumLat = 0, sumLon = 0, count = 0;
+        for (let j = Math.max(0, i - half); j <= Math.min(arr.length - 1, i + half); j++) {
+            sumLat += arr[j][0];
+            sumLon += arr[j][1];
+            count++;
+        }
+        return [sumLat / count, sumLon / count, arr[i][2], arr[i][3], arr[i][4]];
+    });
+}
+
+const smoothedCoords = smoothCoords(coords, 15);
+const allLatLngs = smoothedCoords.map(c => [c[0], c[1]]);
+
+// Deduplicate consecutive identical positions for a cleaner path
+const latLngs = [allLatLngs[0]];
+for (let i = 1; i < allLatLngs.length; i++) {
+    const prev = latLngs[latLngs.length - 1];
+    if (allLatLngs[i][0] !== prev[0] || allLatLngs[i][1] !== prev[1]) {
+        latLngs.push(allLatLngs[i]);
+    }
+}
+
+// Decimate data for display (keep every Nth point for cleaner charts)
+const step = Math.max(1, Math.floor(coords.length / 120));
+const displayCoords = coords.filter((_, i) => i % step === 0 || i === coords.length - 1);
+
+const times = displayCoords.map(c => c[4]);
+const alts = displayCoords.map(c => c[2]);
+const speeds = displayCoords.map(c => c[3]);
+const rssis = displayCoords.map(c => c.length > 5 ? c[5] : 0);
+const batteries = displayCoords.map(c => c.length > 6 ? c[6] : 0);
+
+// Map
+const map = L.map('map').setView([coords[0][0], coords[0][1]], 16);
+
+const satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution: '&copy; Esri, Maxar, Earthstar Geographics'
+});
+const satelliteLabels = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+    attribution: '&copy; Esri'
+});
+const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors'
+});
+const topo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenTopoMap contributors'
+});
+
+satellite.addTo(map);
+satelliteLabels.addTo(map);
+
+const baseMaps = {
+    'Satellite': satellite,
+    'Street': osm,
+    'Terrain': topo
+};
+const overlays = {
+    'Labels': satelliteLabels
+};
+
+L.control.layers(baseMaps, overlays, {collapsed: false}).addTo(map);
+
+const polyline = L.polyline(latLngs, {color: '#00d4ff', weight: 3, opacity: 0.9}).addTo(map);
+map.fitBounds(polyline.getBounds().pad(0.05));
+
+L.circleMarker([coords[0][0], coords[0][1]], {radius: 8, color: '#22c55e', fillColor: '#22c55e', fillOpacity: 1}).addTo(map).bindTooltip('Start');
+L.circleMarker([coords[coords.length-1][0], coords[coords.length-1][1]], {radius: 8, color: '#ef4444', fillColor: '#ef4444', fillOpacity: 1}).addTo(map).bindTooltip('End');
+
+// Charts
+function fmtTime(ts) {
+    const d = new Date(ts * 1000);
+    return d.toLocaleTimeString();
+}
+
+new Chart(document.getElementById('altitudeChart'), {
+    type: 'line',
+    data: {
+        labels: times.map(fmtTime),
+        datasets: [{
+            label: 'Altitude (m)',
+            data: alts,
+            borderColor: 'rgb(75, 192, 192)',
+            backgroundColor: 'rgba(75, 192, 192, 0.08)',
+            fill: true,
+            pointRadius: 0,
+        }]
+    },
+    options: {
+        responsive: true,
+        elements: {line: {tension: 0.4, cubicInterpolationMode: 'monotone'}},
+        plugins: {legend: {display: false}, title: {display: true, text: 'Altitude Profile'}},
+        scales: {x: {ticks: {maxTicksLimit: 8, font: {size: 10}}}, y: {beginAtZero: false}}
+    }
+});
+
+new Chart(document.getElementById('speedChart'), {
+    type: 'line',
+    data: {
+        labels: times.map(fmtTime),
+        datasets: [{
+            label: 'Ground Speed (km/h)',
+            data: speeds,
+            borderColor: 'rgb(255, 99, 132)',
+            backgroundColor: 'rgba(255, 99, 132, 0.08)',
+            fill: true,
+            pointRadius: 0,
+        }]
+    },
+    options: {
+        responsive: true,
+        elements: {line: {tension: 0.4, cubicInterpolationMode: 'monotone'}},
+        plugins: {legend: {display: false}, title: {display: true, text: 'Ground Speed'}},
+        scales: {x: {ticks: {maxTicksLimit: 8, font: {size: 10}}}, y: {beginAtZero: true}}
+    }
+});
+
+new Chart(document.getElementById('rssiChart'), {
+    type: 'line',
+    data: {
+        labels: times.map(fmtTime),
+        datasets: [{
+            label: 'RSSI (dB)',
+            data: rssis,
+            borderColor: 'rgb(153, 102, 255)',
+            backgroundColor: 'rgba(153, 102, 255, 0.12)',
+            fill: true,
+            pointRadius: 0,
+        }]
+    },
+    options: {
+        responsive: true,
+        elements: {line: {tension: 0.4, cubicInterpolationMode: 'monotone'}},
+        plugins: {legend: {display: false}, title: {display: true, text: 'RSSI Signal Strength'}},
+        scales: {x: {ticks: {maxTicksLimit: 8, font: {size: 10}}}, y: {beginAtZero: false}}
+    }
+});
+
+new Chart(document.getElementById('batteryChart'), {
+    type: 'line',
+    data: {
+        labels: times.map(fmtTime),
+        datasets: [{
+            label: 'Battery Voltage (V)',
+            data: batteries,
+            borderColor: 'rgb(255, 159, 64)',
+            backgroundColor: 'rgba(255, 159, 64, 0.08)',
+            fill: true,
+            pointRadius: 0,
+        }]
+    },
+    options: {
+        responsive: true,
+        elements: {line: {tension: 0.4, cubicInterpolationMode: 'monotone'}},
+        plugins: {legend: {display: false}, title: {display: true, text: 'Battery Voltage'}},
+        scales: {x: {ticks: {maxTicksLimit: 8, font: {size: 10}}}, y: {beginAtZero: false}}
+    }
+});
+</script>
+{% endblock %}

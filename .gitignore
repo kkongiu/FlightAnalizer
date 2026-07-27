@@ -1,0 +1,7 @@
+__pycache__/
+venv/
+*.pyc
+data/flights.db
+data/.session_secret
+*.csv
+.env
