@@ -13,7 +13,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from parser import parse_log
 from analyzer import analyze
-from database import save_flight, get_all_flights, get_flight, delete_flight, update_notes, update_flight_track
+from database import save_flight, get_all_flights, get_flight, delete_flight, rename_flight, update_notes, update_flight_track
 
 USER = os.environ.get("POCKET_USER")
 PASS = os.environ.get("POCKET_PASS")
@@ -293,6 +293,26 @@ async def api_delete(request: Request, filename: str):
         return denied
     delete_flight(filename)
     return {"deleted": filename}
+
+
+@app.put("/api/flights/{filename:path}")
+async def api_rename(request: Request, filename: str):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    body = await request.json()
+    new_name = body.get("new_name", "").strip()
+    if not new_name or "/" in new_name or "\\" in new_name:
+        return JSONResponse({"error": "invalid name"}, status_code=400)
+    if get_flight(new_name):
+        return JSONResponse({"error": "a flight with this name already exists"}, status_code=409)
+    old_path = LOG_DIR / filename
+    new_path = LOG_DIR / new_name
+    if old_path.exists():
+        old_path.rename(new_path)
+    if not rename_flight(filename, new_name):
+        return JSONResponse({"error": "rename failed"}, status_code=500)
+    return {"filename": new_name}
 
 
 @app.get("/api/export/{filename:path}")

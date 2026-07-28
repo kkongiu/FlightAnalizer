@@ -102,6 +102,12 @@ def delete_flight(filename: str):
         conn.execute("DELETE FROM flights WHERE filename = ?", (filename,))
 
 
+def rename_flight(old_filename: str, new_filename: str) -> bool:
+    with _get_conn() as conn:
+        cur = conn.execute("UPDATE flights SET filename = ? WHERE filename = ?", (new_filename, old_filename))
+        return cur.rowcount > 0
+
+
 def update_notes(filename: str, notes: str):
     with _get_conn() as conn:
         conn.execute("UPDATE flights SET notes = ? WHERE filename = ?", (notes, filename))

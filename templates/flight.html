@@ -12,7 +12,8 @@
 
     <div class="flight-header">
         <h2>{{ flight.date }} {{ flight.start_time }}</h2>
-        <span class="filename">{{ flight.filename }}</span>
+        <span class="filename" id="filenameDisplay">{{ flight.filename }}</span>
+        <button class="btn-rename" id="renameBtn" style="margin-left:0.5rem;font-size:0.75rem;padding:0.15rem 0.5rem;vertical-align:middle;">&#9998;</button>
         <div style="margin-top:0.8rem;display:flex;gap:0.5rem;flex-wrap:wrap;">
             <a class="btn-primary" href="/flight/api/export/{{ flight.filename }}?format=gpx" style="text-decoration:none;font-size:0.85rem;">Export GPX</a>
             <a class="btn-primary" href="/flight/api/export/{{ flight.filename }}?format=kml" style="text-decoration:none;font-size:0.85rem;">Export KML</a>
@@ -88,12 +89,47 @@ const flight = {{ flight | tojson }};
 const coords = flight.coordinates || [];
 const filename = {{ flight.filename | tojson }};
 
+function renameFlight() {
+    const display = document.getElementById('filenameDisplay');
+    const oldName = display.textContent;
+    const input = document.createElement('input');
+    input.type = 'text'; input.value = oldName;
+    input.style.fontSize = '0.9rem'; input.style.padding = '0.2rem 0.4rem';
+    input.style.width = Math.max(200, oldName.length * 8) + 'px';
+    display.replaceWith(input);
+    input.focus(); input.select();
+    const cancel = () => { input.replaceWith(display); display.textContent = oldName; };
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') { cancel(); }
+        if (e.key === 'Enter') {
+            const newName = input.value.trim();
+            if (!newName || newName === oldName) { cancel(); return; }
+            fetch('/flight/api/flights/' + encodeURIComponent(oldName), {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({new_name: newName})
+            }).then(r => {
+                if (r.ok) {
+                    display.textContent = newName;
+                    input.replaceWith(display);
+                    window.history.replaceState(null, '', '/flight/flight/' + encodeURIComponent(newName));
+                } else {
+                    return r.json().then(d => { alert(d.error || 'Rename failed'); cancel(); });
+                }
+            }).catch(() => { alert('Error renaming flight'); cancel(); });
+        }
+    });
+    input.addEventListener('blur', cancel);
+}
+
 function deleteFlight(name) {
     if (!confirm('Delete this flight?')) return;
     fetch('/flight/api/flights/' + encodeURIComponent(name), { method: 'DELETE' })
         .then(r => { if (r.ok) window.location.href = '/flight/flights'; else alert('Delete failed'); })
         .catch(e => alert('Error: ' + e.message));
 }
+
+document.getElementById('renameBtn').addEventListener('click', () => renameFlight());
 
 document.getElementById('deleteBtn').addEventListener('click', () => deleteFlight(filename));
 document.getElementById('saveNotesBtn').addEventListener('click', saveNotes);
