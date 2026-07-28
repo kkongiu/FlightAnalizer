@@ -14,54 +14,23 @@
         <h2>{{ flight.date }} {{ flight.start_time }}</h2>
         <span class="filename" id="filenameDisplay">{{ flight.filename }}</span>
         <button class="btn-rename" id="renameBtn" style="margin-left:0.5rem;font-size:0.75rem;padding:0.15rem 0.5rem;vertical-align:middle;">&#9998;</button>
-        <div style="margin-top:0.8rem;display:flex;gap:0.5rem;flex-wrap:wrap;">
-            <a class="btn-primary" href="/flight/api/export/{{ flight.filename }}?format=gpx" style="text-decoration:none;font-size:0.85rem;">Export GPX</a>
-            <a class="btn-primary" href="/flight/api/export/{{ flight.filename }}?format=kml" style="text-decoration:none;font-size:0.85rem;">Export KML</a>
-            <label class="btn-primary" for="gpxFileInput" style="font-size:0.85rem;cursor:pointer;" id="importGpxLabel">Import GPX</label>
+        <div style="margin-top:0.5rem;display:flex;gap:0.3rem;flex-wrap:wrap;">
+            <a class="btn-primary" href="/flight/api/export/{{ flight.filename }}?format=gpx" style="text-decoration:none;font-size:0.7rem;padding:0.25rem 0.6rem;">Export GPX</a>
+            <a class="btn-primary" href="/flight/api/export/{{ flight.filename }}?format=kml" style="text-decoration:none;font-size:0.7rem;padding:0.25rem 0.6rem;">Export KML</a>
+            <label class="btn-primary" for="gpxFileInput" style="font-size:0.7rem;padding:0.25rem 0.6rem;cursor:pointer;" id="importGpxLabel">Import GPX</label>
             <input type="file" id="gpxFileInput" accept=".gpx" style="display:none;">
-            <button class="btn-danger btn-sm" id="deleteBtn">Delete Flight</button>
+            <button class="btn-danger" id="deleteBtn" style="font-size:0.7rem;padding:0.25rem 0.6rem;">Delete</button>
         </div>
-    </div>
-
-    <div class="stats-grid">
-        <div class="stat-card"><span class="stat-label">Duration</span><span class="stat-value">{{ flight.duration_s | fmt_duration }}</span></div>
-        <div class="stat-card"><span class="stat-label">Distance</span><span class="stat-value">{{ "%.2f"|format(flight.distance_km) }}km</span></div>
-        <div class="stat-card"><span class="stat-label">Max Altitude</span><span class="stat-value">{{ "%.0f"|format(flight.max_alt_m) }}m</span></div>
-        <div class="stat-card"><span class="stat-label">Min Altitude</span><span class="stat-value">{{ "%.0f"|format(flight.min_alt_m) }}m</span></div>
-        <div class="stat-card"><span class="stat-label">Avg Altitude</span><span class="stat-value">{{ "%.0f"|format(flight.avg_alt_m) }}m</span></div>
-        <div class="stat-card"><span class="stat-label">Max Speed</span><span class="stat-value">{{ "%.0f"|format(flight.max_speed_kmh) }}km/h</span></div>
-        <div class="stat-card"><span class="stat-label">Avg Speed</span><span class="stat-value">{{ "%.0f"|format(flight.avg_speed_kmh) }}km/h</span></div>
-        <div class="stat-card"><span class="stat-label">Max VSpeed</span><span class="stat-value">{{ "%.1f"|format(flight.max_vspd_ms) }}m/s</span></div>
-        <div class="stat-card"><span class="stat-label">RSSI Min</span><span class="stat-value">{{ flight.min_rssi_db }}dB</span></div>
-        <div class="stat-card"><span class="stat-label">RSSI Avg</span><span class="stat-value">{{ "%.1f"|format(flight.avg_rssi_db) }}dB</span></div>
-        <div class="stat-card"><span class="stat-label">RSSI Max</span><span class="stat-value">{{ flight.max_rssi_db }}dB</span></div>
-        <div class="stat-card"><span class="stat-label">Link Quality Min</span><span class="stat-value">{{ flight.min_rqly }}%</span></div>
-        <div class="stat-card"><span class="stat-label">Link Quality Avg</span><span class="stat-value">{{ "%.1f"|format(flight.avg_rqly) }}%</span></div>
-        <div class="stat-card"><span class="stat-label">Battery Start</span><span class="stat-value">{{ "%.2f"|format(flight.battery_start_v) }}V / {{ "%.0f"|format(flight.battery_start_pct) }}%</span></div>
-        <div class="stat-card"><span class="stat-label">Battery End</span><span class="stat-value">{{ "%.2f"|format(flight.battery_end_v) }}V / {{ "%.0f"|format(flight.battery_end_pct) }}%</span></div>
-        <div class="stat-card"><span class="stat-label">Battery Min</span><span class="stat-value">{{ "%.2f"|format(flight.battery_min_v) }}V</span></div>
-        <div class="stat-card"><span class="stat-label">Consumed</span><span class="stat-value">{{ "%.0f"|format(flight.battery_consumed_mah) }}mAh</span></div>
-        <div class="stat-card"><span class="stat-label">Max Current</span><span class="stat-value">{{ "%.1f"|format(flight.max_current_a) }}A</span></div>
-        <div class="stat-card"><span class="stat-label">Tx Battery</span><span class="stat-value">{{ "%.1f"|format(flight.txbat_v) }}V</span></div>
-        <div class="stat-card"><span class="stat-label">Max Sats</span><span class="stat-value">{{ flight.sats_max }}</span></div>
-        <div class="stat-card"><span class="stat-label">Flight Modes</span><span class="stat-value">{{ flight.flight_modes | dict2str }}</span></div>
-    </div>
-
-    <div class="notes-section">
-        <h3>Notes</h3>
-        <textarea id="notesText" placeholder="Add notes about this flight...">{{ flight.notes or '' }}</textarea>
-        <button class="btn-primary" id="saveNotesBtn" style="margin-top:0.5rem;font-size:0.85rem;">Save Notes</button>
-        <span id="notesStatus" style="margin-left:0.5rem;font-size:0.85rem;color:#888;"></span>
     </div>
 
     <div class="map-section">
         <h3>Flight Track</h3>
-        <div id="map" style="height: 500px; width: 100%;"></div>
-        <div class="playback-bar">
-            <button id="playBtn" class="btn-primary" style="font-size:0.85rem;padding:0.3rem 0.8rem;">&#9654; Play</button>
-            <input type="range" id="timeline" min="0" max="1000" value="0" style="flex:1;min-width:60px;">
-            <span id="timeDisplay" style="font-size:0.8rem;color:#aaa;white-space:nowrap;min-width:5rem;"></span>
-            <select id="speedSelect" style="font-size:0.8rem;padding:0.2rem;">
+        <div id="map" style="height: 450px; width: 100%;"></div>
+        <div class="playback-bar" style="margin-top:0.4rem;display:flex;align-items:center;gap:0.5rem;">
+            <button id="playBtn" class="btn-primary" style="font-size:0.75rem;padding:0.2rem 0.6rem;">&#9654; Play</button>
+            <input type="range" id="timeline" min="0" max="1000" value="0" style="flex:1;min-width:60px;height:4px;">
+            <span id="timeDisplay" style="font-size:0.75rem;color:#aaa;white-space:nowrap;min-width:4.5rem;"></span>
+            <select id="speedSelect" style="font-size:0.75rem;padding:0.15rem;">
                 <option value="0.5">0.5x</option>
                 <option value="1" selected>1x</option>
                 <option value="2">2x</option>
@@ -82,6 +51,58 @@
             <div class="chart-container"><canvas id="batteryChart"></canvas></div>
         </div>
     </div>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-row"><span class="stat-label">Duration</span><span class="stat-value">{{ flight.duration_s | fmt_duration }}</span></div>
+            <div class="stat-row"><span class="stat-label">Distance</span><span class="stat-value">{{ "%.2f"|format(flight.distance_km) }}km</span></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-row"><span class="stat-label">Max Alt</span><span class="stat-value">{{ "%.0f"|format(flight.max_alt_m) }}m</span></div>
+            <div class="stat-row"><span class="stat-label">Min Alt</span><span class="stat-value">{{ "%.0f"|format(flight.min_alt_m) }}m</span></div>
+            <div class="stat-row"><span class="stat-label">Avg Alt</span><span class="stat-value">{{ "%.0f"|format(flight.avg_alt_m) }}m</span></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-row"><span class="stat-label">Max Speed</span><span class="stat-value">{{ "%.0f"|format(flight.max_speed_kmh) }}km/h</span></div>
+            <div class="stat-row"><span class="stat-label">Avg Speed</span><span class="stat-value">{{ "%.0f"|format(flight.avg_speed_kmh) }}km/h</span></div>
+            <div class="stat-row"><span class="stat-label">Max VSpeed</span><span class="stat-value">{{ "%.1f"|format(flight.max_vspd_ms) }}m/s</span></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-row"><span class="stat-label">RSSI Min</span><span class="stat-value">{{ flight.min_rssi_db }}dB</span></div>
+            <div class="stat-row"><span class="stat-label">RSSI Avg</span><span class="stat-value">{{ "%.1f"|format(flight.avg_rssi_db) }}dB</span></div>
+            <div class="stat-row"><span class="stat-label">RSSI Max</span><span class="stat-value">{{ flight.max_rssi_db }}dB</span></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-row"><span class="stat-label">LQ Min</span><span class="stat-value">{{ flight.min_rqly }}%</span></div>
+            <div class="stat-row"><span class="stat-label">LQ Avg</span><span class="stat-value">{{ "%.1f"|format(flight.avg_rqly) }}%</span></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-row"><span class="stat-label">Batt Start</span><span class="stat-value">{{ "%.2f"|format(flight.battery_start_v) }}V / {{ "%.0f"|format(flight.battery_start_pct) }}%</span></div>
+            <div class="stat-row"><span class="stat-label">Batt End</span><span class="stat-value">{{ "%.2f"|format(flight.battery_end_v) }}V / {{ "%.0f"|format(flight.battery_end_pct) }}%</span></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-row"><span class="stat-label">Batt Min</span><span class="stat-value">{{ "%.2f"|format(flight.battery_min_v) }}V</span></div>
+            <div class="stat-row"><span class="stat-label">Consumed</span><span class="stat-value">{{ "%.0f"|format(flight.battery_consumed_mah) }}mAh</span></div>
+            <div class="stat-row"><span class="stat-label">Max Current</span><span class="stat-value">{{ "%.1f"|format(flight.max_current_a) }}A</span></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-row"><span class="stat-label">Tx Batt</span><span class="stat-value">{{ "%.1f"|format(flight.txbat_v) }}V</span></div>
+            <div class="stat-row"><span class="stat-label">Max Sats</span><span class="stat-value">{{ flight.sats_max }}</span></div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-label">Flight Modes</span>
+            <span class="stat-value" style="font-size:0.75rem;">{{ flight.flight_modes | dict2str }}</span>
+        </div>
+    </div>
+
+    <div class="notes-section">
+        <h3>Notes</h3>
+        <textarea id="notesText" placeholder="Add notes about this flight..." style="min-height:50px;">{{ flight.notes or '' }}</textarea>
+        <div style="margin-top:0.3rem;">
+            <button class="btn-primary" id="saveNotesBtn" style="font-size:0.75rem;padding:0.25rem 0.6rem;">Save Notes</button>
+            <span id="notesStatus" style="margin-left:0.5rem;font-size:0.75rem;color:#888;"></span>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -98,26 +119,41 @@ function renameFlight() {
     input.style.width = Math.max(200, oldName.length * 8) + 'px';
     display.replaceWith(input);
     input.focus(); input.select();
-    const cancel = () => { input.replaceWith(display); display.textContent = oldName; };
+    let done = false;
+    const cancel = () => {
+        if (done || !input.parentNode) return;
+        done = true;
+        input.replaceWith(display);
+        display.textContent = oldName;
+    };
+    const submit = () => {
+        if (done) return;
+        const newName = input.value.trim();
+        if (!newName || newName === oldName) { cancel(); return; }
+        done = true;
+        input.removeEventListener('blur', cancel);
+        fetch('/flight/api/flights/' + encodeURIComponent(oldName), {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({new_name: newName})
+        }).then(async r => {
+            if (r.ok) {
+                window.location.href = '/flight/flight/' + encodeURIComponent(newName);
+            } else {
+                let msg = 'Rename failed';
+                try { const d = await r.json(); msg = d.error || msg; } catch (_) {}
+                alert(msg);
+                cancel();
+            }
+        }).catch(e => {
+            console.error('Rename error:', e);
+            alert('Error renaming flight');
+            if (input.parentNode) cancel();
+        });
+    };
     input.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') { cancel(); }
-        if (e.key === 'Enter') {
-            const newName = input.value.trim();
-            if (!newName || newName === oldName) { cancel(); return; }
-            fetch('/flight/api/flights/' + encodeURIComponent(oldName), {
-                method: 'PUT',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({new_name: newName})
-            }).then(r => {
-                if (r.ok) {
-                    display.textContent = newName;
-                    input.replaceWith(display);
-                    window.history.replaceState(null, '', '/flight/flight/' + encodeURIComponent(newName));
-                } else {
-                    return r.json().then(d => { alert(d.error || 'Rename failed'); cancel(); });
-                }
-            }).catch(() => { alert('Error renaming flight'); cancel(); });
-        }
+        if (e.key === 'Escape') cancel();
+        else if (e.key === 'Enter') { e.preventDefault(); submit(); }
     });
     input.addEventListener('blur', cancel);
 }
@@ -174,10 +210,19 @@ function saveNotes() {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({notes})
-    }).then(r => {
-        status.textContent = r.ok ? 'Saved' : 'Error';
-        setTimeout(() => status.textContent = '', 2000);
-    }).catch(() => status.textContent = 'Error');
+    }).then(async r => {
+        if (r.ok) {
+            status.textContent = 'Saved';
+        } else {
+            let msg = 'Error';
+            try { const d = await r.json(); msg = d.error || msg; } catch (_) {}
+            status.textContent = msg;
+        }
+        setTimeout(() => status.textContent = '', 3000);
+    }).catch(e => {
+        console.error('saveNotes error:', e);
+        status.textContent = 'Error';
+    });
 }
 
 // Deduplicate consecutive identical positions for a cleaner path

@@ -275,85 +275,18 @@ async def api_stats(request: Request):
     return get_stats()
 
 
-@app.get("/api/flights/{filename:path}")
-async def api_flight(request: Request, filename: str):
-    denied = require_api_auth(request)
-    if denied:
-        return denied
-    flight = get_flight(filename)
-    if not flight:
-        return JSONResponse({"error": "not found"}, status_code=404)
-    return flight
-
-
-@app.delete("/api/flights/{filename:path}")
-async def api_delete(request: Request, filename: str):
-    denied = require_api_auth(request)
-    if denied:
-        return denied
-    delete_flight(filename)
-    return {"deleted": filename}
-
-
-@app.put("/api/flights/{filename:path}")
-async def api_rename(request: Request, filename: str):
-    denied = require_api_auth(request)
-    if denied:
-        return denied
-    body = await request.json()
-    new_name = body.get("new_name", "").strip()
-    if not new_name or "/" in new_name or "\\" in new_name:
-        return JSONResponse({"error": "invalid name"}, status_code=400)
-    if get_flight(new_name):
-        return JSONResponse({"error": "a flight with this name already exists"}, status_code=409)
-    old_path = LOG_DIR / filename
-    new_path = LOG_DIR / new_name
-    if old_path.exists():
-        old_path.rename(new_path)
-    if not rename_flight(filename, new_name):
-        return JSONResponse({"error": "rename failed"}, status_code=500)
-    return {"filename": new_name}
-
-
-@app.get("/api/export/{filename:path}")
-async def api_export(request: Request, filename: str, format: str = "gpx"):
-    denied = require_api_auth(request)
-    if denied:
-        return denied
-    flight = get_flight(filename)
-    if not flight:
-        return JSONResponse({"error": "not found"}, status_code=404)
-    coords = flight.get("coordinates", [])
-    safe_name = _xml_escape(filename)
-    if format == "kml":
-        lines = ['<?xml version="1.0" encoding="UTF-8"?>',
-                 '<kml xmlns="http://www.opengis.net/kml/2.2">',
-                 f'  <Document><name>{safe_name}</name>',
-                 '    <Placemark><name>Flight Track</name><LineString><coordinates>']
-        for c in coords:
-            lines.append(f"      {c[1]},{c[0]},{c[2]}")
-        lines.append('</coordinates></LineString></Placemark></Document></kml>')
-        content_disp = f'attachment; filename="{safe_name}.kml"'
-        return HTMLResponse("\n".join(lines), media_type="application/vnd.google-earth.kml+xml",
-                            headers={"Content-Disposition": content_disp})
-    else:
-        lines = ['<?xml version="1.0" encoding="UTF-8"?>',
-                 '<gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1">',
-                 f'  <trk><name>{safe_name}</name><trkseg>']
-        for c in coords:
-            lines.append(f'    <trkpt lat="{c[0]}" lon="{c[1]}"><ele>{c[2]}</ele><time>{c[4]}</time></trkpt>')
-        lines.append('  </trkseg></trk></gpx>')
-        content_disp = f'attachment; filename="{safe_name}.gpx"'
-        return HTMLResponse("\n".join(lines), media_type="application/gpx+xml",
-                            headers={"Content-Disposition": content_disp})
-
-
 @app.put("/api/flights/{filename:path}/notes")
 async def api_save_notes(filename: str, request: Request):
     denied = require_api_auth(request)
     if denied:
         return denied
-    body = await request.json()
+    raw = await request.body()
+    if not raw:
+        return JSONResponse({"error": "empty body"}, status_code=400)
+    try:
+        body = __import__("json").loads(raw)
+    except Exception as e:
+        return JSONResponse({"error": f"invalid JSON: {e}"}, status_code=400)
     notes = body.get("notes", "")[:5000]
     flight = get_flight(filename)
     if not flight:
@@ -483,6 +416,82 @@ async def api_import_gpx(filename: str, request: Request, file: UploadFile = Fil
         return {"ok": True, "points": len(gpx_coords), "stats": stats}
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.get("/api/flights/{filename:path}")
+async def api_flight(request: Request, filename: str):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    flight = get_flight(filename)
+    if not flight:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return flight
+
+
+@app.delete("/api/flights/{filename:path}")
+async def api_delete(request: Request, filename: str):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    delete_flight(filename)
+    return {"deleted": filename}
+
+
+@app.put("/api/flights/{filename:path}")
+async def api_rename(request: Request, filename: str):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    body = await request.json()
+    new_name = body.get("new_name", "").strip()
+    if not new_name or "/" in new_name or "\\" in new_name:
+        return JSONResponse({"error": "invalid name"}, status_code=400)
+    if get_flight(new_name):
+        return JSONResponse({"error": "a flight with this name already exists"}, status_code=409)
+    old_path = LOG_DIR / filename
+    new_path = LOG_DIR / new_name
+    if old_path.exists():
+        old_path.rename(new_path)
+    if not rename_flight(filename, new_name):
+        return JSONResponse({"error": "rename failed"}, status_code=500)
+    return {"filename": new_name}
+
+
+@app.get("/api/export/{filename:path}")
+async def api_export(request: Request, filename: str, format: str = "gpx"):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    flight = get_flight(filename)
+    if not flight:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    coords = flight.get("coordinates", [])
+    safe_name = _xml_escape(filename)
+    if format == "kml":
+        lines = ['<?xml version="1.0" encoding="UTF-8"?>',
+                 '<kml xmlns="http://www.opengis.net/kml/2.2">',
+                 f'  <Document><name>{safe_name}</name>',
+                 '    <Placemark><name>Flight Track</name><LineString><coordinates>']
+        for c in coords:
+            lines.append(f"      {c[1]},{c[0]},{c[2]}")
+        lines.append('</coordinates></LineString></Placemark></Document></kml>')
+        content_disp = f'attachment; filename="{safe_name}.kml"'
+        return HTMLResponse("\n".join(lines), media_type="application/vnd.google-earth.kml+xml",
+                            headers={"Content-Disposition": content_disp})
+    else:
+        lines = ['<?xml version="1.0" encoding="UTF-8"?>',
+                 '<gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1">',
+                 f'  <trk><name>{safe_name}</name><trkseg>']
+        for c in coords:
+            lines.append(f'    <trkpt lat="{c[0]}" lon="{c[1]}"><ele>{c[2]}</ele><time>{c[4]}</time></trkpt>')
+        lines.append('  </trkseg></trk></gpx>')
+        content_disp = f'attachment; filename="{safe_name}.gpx"'
+        return HTMLResponse("\n".join(lines), media_type="application/gpx+xml",
+                            headers={"Content-Disposition": content_disp})
+
+
+
 
 
 @app.get("/api/battery-health")
