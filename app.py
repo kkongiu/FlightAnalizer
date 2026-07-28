@@ -49,6 +49,19 @@ def dict2str(d):
     return ", ".join(f"{k}: {v}" for k, v in sorted(d.items()))
 
 
+def fmt_duration(seconds):
+    if not seconds:
+        return "0s"
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = int(seconds % 60)
+    if h:
+        return f"{h}h {m:02d}m {s:02d}s"
+    elif m:
+        return f"{m}m {s:02d}s"
+    return f"{s}s"
+
+
 app = FastAPI(title="Pocket Log Analyzer")
 app.add_middleware(
     SessionMiddleware,
@@ -59,6 +72,7 @@ app.add_middleware(
 )
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 templates.env.filters["dict2str"] = dict2str
+templates.env.filters["fmt_duration"] = fmt_duration
 LOG_DIR = Path(__file__).parent
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -347,103 +361,108 @@ async def api_import_gpx(filename: str, request: Request, file: UploadFile = Fil
     except ET.ParseError:
         return JSONResponse({"error": "Invalid GPX file"}, status_code=400)
 
-    ns = {"gpx": "http://www.topografix.com/GPX/1/1"}
-    trkpts = root.findall(".//gpx:trkpt", ns)
-    if not trkpts:
-        trkpts = root.findall(".//trkpt")
-    if not trkpts:
-        return JSONResponse({"error": "No track points found in GPX"}, status_code=400)
+    try:
+        ns_match = re.match(r'\{([^}]+)\}', root.tag)
+        ns_url = ns_match.group(1) if ns_match else ""
+        ns = {"gpx": ns_url} if ns_url else {}
+        trkpts = root.findall(".//gpx:trkpt", ns) if ns_url else root.findall(".//trkpt")
+        if not trkpts:
+            return JSONResponse({"error": "No track points found in GPX"}, status_code=400)
 
-    original_coords = flight.get("coordinates", [])
+        original_coords = flight.get("coordinates", [])
 
-    def _parse_gpx_time(time_str: str) -> float:
-        time_str = time_str.strip()
-        if time_str.endswith("Z"):
-            time_str = time_str[:-1] + "+00:00"
-        try:
-            from datetime import datetime, timezone
-            dt = datetime.fromisoformat(time_str)
-            return dt.timestamp()
-        except ValueError:
-            return 0.0
-
-    def _find_closest_orig(orig_list: list, target_ts: float):
-        if not orig_list:
-            return None
-        best = min(orig_list, key=lambda c: abs(c[4] - target_ts))
-        if abs(best[4] - target_ts) > 300:
-            return None
-        return best
-
-    gpx_coords = []
-    for pt in trkpts:
-        lat = float(pt.attrib.get("lat", 0))
-        lon = float(pt.attrib.get("lon", 0))
-        if lat < -90 or lat > 90 or lon < -180 or lon > 180:
-            continue
-        ele_el = pt.find("gpx:ele", ns) or pt.find("ele")
-        ele = float(ele_el.text) if ele_el is not None and ele_el.text else 0.0
-        time_el = pt.find("gpx:time", ns) or pt.find("time")
-        ts = _parse_gpx_time(time_el.text) if time_el is not None and time_el.text else 0.0
-        speed = 0.0
-        speed_el = pt.find("gpx:speed", ns) or pt.find("speed")
-        if speed_el is not None and speed_el.text:
+        def _parse_gpx_time(time_str: str) -> float:
+            time_str = time_str.strip()
+            if time_str.endswith("Z"):
+                time_str = time_str[:-1] + "+00:00"
             try:
-                speed = float(speed_el.text) * 3.6
+                from datetime import datetime, timezone
+                dt = datetime.fromisoformat(time_str)
+                return dt.timestamp()
             except ValueError:
-                pass
-        gpx_coords.append([lat, lon, ele, speed, ts, 0, 0])
+                return 0.0
 
-    for gc in gpx_coords:
-        orig = _find_closest_orig(original_coords, gc[4])
-        if orig:
-            gc[5] = orig[5]
-            gc[6] = orig[6]
+        def _find_closest_orig(orig_list: list, target_ts: float):
+            if not orig_list:
+                return None
+            best = min(orig_list, key=lambda c: abs(c[4] - target_ts))
+            if abs(best[4] - target_ts) > 300:
+                return None
+            return best
 
-    if len(gpx_coords) >= 2:
-        from analyzer import haversine_km
-        total_dist = 0.0
-        speeds = []
-        for i in range(1, len(gpx_coords)):
-            total_dist += haversine_km(
-                gpx_coords[i-1][0], gpx_coords[i-1][1],
-                gpx_coords[i][0], gpx_coords[i][1]
-            )
-        if gpx_coords[0][4] > 0 and gpx_coords[-1][4] > 0:
-            duration_s = gpx_coords[-1][4] - gpx_coords[0][4]
+        gpx_coords = []
+        for pt in trkpts:
+            lat = float(pt.attrib.get("lat", 0))
+            lon = float(pt.attrib.get("lon", 0))
+            if lat < -90 or lat > 90 or lon < -180 or lon > 180:
+                continue
+            ele_el = pt.find("gpx:ele", ns) if ns_url else pt.find("ele")
+            ele = float(ele_el.text) if ele_el is not None and ele_el.text else 0.0
+            time_el = pt.find("gpx:time", ns) if ns_url else pt.find("time")
+            ts = _parse_gpx_time(time_el.text) if time_el is not None and time_el.text else 0.0
+            speed = 0.0
+            speed_el = pt.find("gpx:speed", ns) if ns_url else pt.find("speed")
+            if speed_el is not None and speed_el.text:
+                try:
+                    speed = float(speed_el.text) * 3.6
+                except ValueError:
+                    pass
+            gpx_coords.append([lat, lon, ele, speed, ts, 0, 0])
+
+        for gc in gpx_coords:
+            orig = _find_closest_orig(original_coords, gc[4])
+            if orig:
+                if gc[3] == 0:
+                    gc[3] = orig[3]
+                gc[5] = orig[5]
+                gc[6] = orig[6]
+
+        if len(gpx_coords) >= 2:
+            from analyzer import haversine_km
+            total_dist = 0.0
+            speeds = []
+            for i in range(1, len(gpx_coords)):
+                total_dist += haversine_km(
+                    gpx_coords[i-1][0], gpx_coords[i-1][1],
+                    gpx_coords[i][0], gpx_coords[i][1]
+                )
+            if gpx_coords[0][4] > 0 and gpx_coords[-1][4] > 0:
+                duration_s = gpx_coords[-1][4] - gpx_coords[0][4]
+            else:
+                duration_s = flight.get("duration_s", 0)
+            if duration_s <= 0:
+                duration_s = flight.get("duration_s", 0)
+            alts = [c[2] for c in gpx_coords]
+            if any(c[3] > 0 for c in gpx_coords):
+                speeds = [c[3] for c in gpx_coords if c[3] > 0]
+            elif duration_s > 0:
+                speeds = [(total_dist * 1000) / duration_s * 3.6]
+            else:
+                speeds = [0]
+            stats = {
+                "distance_km": round(total_dist, 3),
+                "duration_s": round(duration_s, 1),
+                "max_alt_m": round(max(alts), 1),
+                "min_alt_m": round(min(alts), 1),
+                "avg_alt_m": round(sum(alts) / len(alts), 1),
+                "max_speed_kmh": round(max(speeds), 1) if speeds else 0,
+                "avg_speed_kmh": round(sum(speeds) / len(speeds), 1) if speeds else 0,
+            }
         else:
-            duration_s = flight.get("duration_s", 0)
-        if duration_s <= 0:
-            duration_s = flight.get("duration_s", 0)
-        alts = [c[2] for c in gpx_coords]
-        if any(c[3] > 0 for c in gpx_coords):
-            speeds = [c[3] for c in gpx_coords if c[3] > 0]
-        elif duration_s > 0:
-            speeds = [(total_dist * 1000) / duration_s * 3.6]
-        else:
-            speeds = [0]
-        stats = {
-            "distance_km": round(total_dist, 3),
-            "duration_s": round(duration_s, 1),
-            "max_alt_m": round(max(alts), 1),
-            "min_alt_m": round(min(alts), 1),
-            "avg_alt_m": round(sum(alts) / len(alts), 1),
-            "max_speed_kmh": round(max(speeds), 1) if speeds else 0,
-            "avg_speed_kmh": round(sum(speeds) / len(speeds), 1) if speeds else 0,
-        }
-    else:
-        stats = {
-            "distance_km": flight.get("distance_km", 0),
-            "duration_s": flight.get("duration_s", 0),
-            "max_alt_m": flight.get("max_alt_m", 0),
-            "min_alt_m": flight.get("min_alt_m", 0),
-            "avg_alt_m": flight.get("avg_alt_m", 0),
-            "max_speed_kmh": flight.get("max_speed_kmh", 0),
-            "avg_speed_kmh": flight.get("avg_speed_kmh", 0),
-        }
+            stats = {
+                "distance_km": flight.get("distance_km", 0),
+                "duration_s": flight.get("duration_s", 0),
+                "max_alt_m": flight.get("max_alt_m", 0),
+                "min_alt_m": flight.get("min_alt_m", 0),
+                "avg_alt_m": flight.get("avg_alt_m", 0),
+                "max_speed_kmh": flight.get("max_speed_kmh", 0),
+                "avg_speed_kmh": flight.get("avg_speed_kmh", 0),
+            }
 
-    update_flight_track(filename, gpx_coords, stats)
-    return {"ok": True, "points": len(gpx_coords), "stats": stats}
+        update_flight_track(filename, gpx_coords, stats)
+        return {"ok": True, "points": len(gpx_coords), "stats": stats}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
 
 
 @app.get("/api/battery-health")

@@ -34,7 +34,7 @@
                 <tr class="flight-row" data-filename="{{ f.filename }}" data-date="{{ f.date }}">
                     <td>{{ f.date }}</td>
                     <td>{{ f.start_time }}</td>
-                    <td>{{ "%.0f"|format(f.duration_s) }}s</td>
+                    <td>{{ f.duration_s | fmt_duration }}</td>
                     <td>{{ "%.2f"|format(f.distance_km) }} km</td>
                     <td>{{ "%.0f"|format(f.max_alt_m) }} m</td>
                     <td>{{ "%.0f"|format(f.max_speed_kmh) }} km/h</td>

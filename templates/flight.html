@@ -23,7 +23,7 @@
     </div>
 
     <div class="stats-grid">
-        <div class="stat-card"><span class="stat-label">Duration</span><span class="stat-value">{{ "%.1f"|format(flight.duration_s) }}s</span></div>
+        <div class="stat-card"><span class="stat-label">Duration</span><span class="stat-value">{{ flight.duration_s | fmt_duration }}</span></div>
         <div class="stat-card"><span class="stat-label">Distance</span><span class="stat-value">{{ "%.2f"|format(flight.distance_km) }}km</span></div>
         <div class="stat-card"><span class="stat-label">Max Altitude</span><span class="stat-value">{{ "%.0f"|format(flight.max_alt_m) }}m</span></div>
         <div class="stat-card"><span class="stat-label">Min Altitude</span><span class="stat-value">{{ "%.0f"|format(flight.min_alt_m) }}m</span></div>
@@ -132,30 +132,41 @@ function saveNotes() {
     }).catch(() => status.textContent = 'Error');
 }
 
-function smoothCoords(arr, window) {
-    const half = Math.floor(window / 2);
-    return arr.map((_, i) => {
-        let sumLat = 0, sumLon = 0, count = 0;
-        for (let j = Math.max(0, i - half); j <= Math.min(arr.length - 1, i + half); j++) {
-            sumLat += arr[j][0];
-            sumLon += arr[j][1];
-            count++;
-        }
-        return [sumLat / count, sumLon / count, arr[i][2], arr[i][3], arr[i][4]];
-    });
-}
-
-const smoothedCoords = smoothCoords(coords, 15);
-const allLatLngs = smoothedCoords.map(c => [c[0], c[1]]);
-
 // Deduplicate consecutive identical positions for a cleaner path
-const latLngs = [allLatLngs[0]];
-for (let i = 1; i < allLatLngs.length; i++) {
+const latLngs = [coords[0]];
+for (let i = 1; i < coords.length; i++) {
     const prev = latLngs[latLngs.length - 1];
-    if (allLatLngs[i][0] !== prev[0] || allLatLngs[i][1] !== prev[1]) {
-        latLngs.push(allLatLngs[i]);
+    if (coords[i][0] !== prev[0] || coords[i][1] !== prev[1]) {
+        latLngs.push(coords[i]);
     }
 }
+const rawLatLng = latLngs.map(c => [c[0], c[1]]);
+
+// Interpolate points along the path for a smoother map display
+function catmullRom(p0, p1, p2, p3, t) {
+    const t2 = t * t, t3 = t2 * t;
+    return [
+        0.5 * ((2 * p1[0]) + (-p0[0] + p2[0]) * t + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3),
+        0.5 * ((2 * p1[1]) + (-p0[1] + p2[1]) * t + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3)
+    ];
+}
+function interpolateCoords(pts, steps) {
+    if (pts.length < 2) return pts;
+    const result = [];
+    for (let i = 0; i < pts.length - 1; i++) {
+        const p0 = i > 0 ? pts[i - 1] : pts[i];
+        const p1 = pts[i];
+        const p2 = pts[i + 1];
+        const p3 = i + 2 < pts.length ? pts[i + 2] : pts[i + 1];
+        result.push(p1);
+        for (let s = 1; s <= steps; s++) {
+            result.push(catmullRom(p0, p1, p2, p3, s / (steps + 1)));
+        }
+    }
+    result.push(pts[pts.length - 1]);
+    return result;
+}
+const latLng = interpolateCoords(rawLatLng, 8);
 
 // Decimate data for display (keep every Nth point for cleaner charts)
 const step = Math.max(1, Math.floor(coords.length / 120));
@@ -197,7 +208,7 @@ const overlays = {
 
 L.control.layers(baseMaps, overlays, {collapsed: false}).addTo(map);
 
-const polyline = L.polyline(latLngs, {color: '#00d4ff', weight: 3, opacity: 0.9}).addTo(map);
+const polyline = L.polyline(latLng, {color: '#00d4ff', weight: 3, opacity: 0.9}).addTo(map);
 map.fitBounds(polyline.getBounds().pad(0.05));
 
 L.circleMarker([coords[0][0], coords[0][1]], {radius: 8, color: '#22c55e', fillColor: '#22c55e', fillOpacity: 1}).addTo(map).bindTooltip('Start');

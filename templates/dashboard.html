@@ -22,7 +22,7 @@
         </div>
         <div class="stat-card">
             <span class="stat-label">Total Duration</span>
-            <span class="stat-value">{{ "%.0f"|format(stats.total_duration_s / 60) }} min</span>
+            <span class="stat-value">{{ stats.total_duration_s | fmt_duration }}</span>
         </div>
     </div>
 
@@ -49,7 +49,7 @@
                 <thead><tr><th>Date</th><th>Flights</th><th>Distance (km)</th><th>Duration (min)</th></tr></thead>
                 <tbody>
                 {% for d in stats.daily %}
-                <tr><td>{{ d.period }}</td><td>{{ d.count }}</td><td>{{ "%.2f"|format(d.distance) }}</td><td>{{ "%.0f"|format(d.duration / 60) }}</td></tr>
+                <tr><td>{{ d.period }}</td><td>{{ d.count }}</td><td>{{ "%.2f"|format(d.distance) }}</td><td>{{ d.duration | fmt_duration }}</td></tr>
                 {% endfor %}
                 </tbody>
             </table>
@@ -60,7 +60,7 @@
                 <thead><tr><th>Week</th><th>Flights</th><th>Distance (km)</th><th>Duration (min)</th></tr></thead>
                 <tbody>
                 {% for w in stats.weekly %}
-                <tr><td>{{ w.period }}</td><td>{{ w.count }}</td><td>{{ "%.2f"|format(w.distance) }}</td><td>{{ "%.0f"|format(w.duration / 60) }}</td></tr>
+                <tr><td>{{ w.period }}</td><td>{{ w.count }}</td><td>{{ "%.2f"|format(w.distance) }}</td><td>{{ w.duration | fmt_duration }}</td></tr>
                 {% endfor %}
                 </tbody>
             </table>
@@ -71,7 +71,7 @@
                 <thead><tr><th>Month</th><th>Flights</th><th>Distance (km)</th><th>Duration (min)</th></tr></thead>
                 <tbody>
                 {% for m in stats.monthly %}
-                <tr><td>{{ m.period }}</td><td>{{ m.count }}</td><td>{{ "%.2f"|format(m.distance) }}</td><td>{{ "%.0f"|format(m.duration / 60) }}</td></tr>
+                <tr><td>{{ m.period }}</td><td>{{ m.count }}</td><td>{{ "%.2f"|format(m.distance) }}</td><td>{{ m.duration | fmt_duration }}</td></tr>
                 {% endfor %}
                 </tbody>
             </table>

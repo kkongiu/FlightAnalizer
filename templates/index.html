@@ -19,7 +19,7 @@
                 <span class="flight-time">{{ f.start_time }}</span>
             </div>
             <div class="flight-card-body">
-                <div class="metric"><span class="metric-label">Duration</span><span class="metric-value">{{ "%.1f"|format(f.duration_s) }}s</span></div>
+                <div class="metric"><span class="metric-label">Duration</span><span class="metric-value">{{ f.duration_s | fmt_duration }}</span></div>
                 <div class="metric"><span class="metric-label">Distance</span><span class="metric-value">{{ "%.2f"|format(f.distance_km) }}km</span></div>
                 <div class="metric"><span class="metric-label">Max Alt</span><span class="metric-value">{{ "%.0f"|format(f.max_alt_m) }}m</span></div>
                 <div class="metric"><span class="metric-label">Max Speed</span><span class="metric-value">{{ "%.0f"|format(f.max_speed_kmh) }}km/h</span></div>
