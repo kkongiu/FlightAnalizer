@@ -1,4 +1,7 @@
 import json
+import hashlib
+import os
+import secrets
 import sqlite3
 from pathlib import Path
 from models import FlightSummary, Vehicle
@@ -78,6 +81,22 @@ def init_db():
             conn.execute("ALTER TABLE flights ADD COLUMN vehicle_id INTEGER DEFAULT NULL")
         except Exception:
             pass
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                salt TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'viewer',
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        # Seed initial admin from env vars if no users exist
+        existing = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        if existing == 0:
+            admin_user = os.environ.get("POCKET_USER", "admin")
+            admin_pass = os.environ.get("POCKET_PASS", "admin")
+            create_user(admin_user, admin_pass, role="admin")
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict:
@@ -382,6 +401,93 @@ def get_all_tags() -> list[str]:
         if r[0]:
             all_tags.update(json.loads(r[0]))
     return sorted(all_tags)
+
+
+# --- User auth CRUD ---
+
+def _hash_password(password: str, salt: str = None) -> tuple[str, str]:
+    if salt is None:
+        salt = secrets.token_hex(16)
+    key = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 100000)
+    return key.hex(), salt
+
+
+def _verify_password(password: str, stored_hash: str, salt: str) -> bool:
+    key, _ = _hash_password(password, salt)
+    return key == stored_hash
+
+
+def create_user(username: str, password: str, role: str = "viewer") -> dict | None:
+    hashed, salt = _hash_password(password)
+    with _get_conn() as conn:
+        try:
+            cur = conn.execute(
+                "INSERT INTO users (username, password_hash, salt, role) VALUES (?, ?, ?, ?)",
+                (username, hashed, salt, role),
+            )
+            return get_user_by_id(cur.lastrowid)
+        except sqlite3.IntegrityError:
+            return None
+
+
+def get_user_by_id(user_id: int) -> dict | None:
+    with _get_conn() as conn:
+        row = conn.execute("SELECT id, username, role, created_at FROM users WHERE id = ?", (user_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_user(username: str) -> dict | None:
+    with _get_conn() as conn:
+        row = conn.execute("SELECT id, username, role, created_at, password_hash, salt FROM users WHERE username = ?", (username,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_all_users() -> list[dict]:
+    with _get_conn() as conn:
+        rows = conn.execute("SELECT id, username, role, created_at FROM users ORDER BY created_at ASC").fetchall()
+    return [dict(r) for r in rows]
+
+
+def update_user(user_id: int, username: str = None, role: str = None) -> dict | None:
+    with _get_conn() as conn:
+        existing = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not existing:
+            return None
+        new_username = username if username is not None else existing["username"]
+        new_role = role if role is not None else existing["role"]
+        try:
+            conn.execute(
+                "UPDATE users SET username = ?, role = ? WHERE id = ?",
+                (new_username, new_role, user_id),
+            )
+        except sqlite3.IntegrityError:
+            return None
+    return get_user_by_id(user_id)
+
+
+def change_password(user_id: int, new_password: str) -> bool:
+    hashed, salt = _hash_password(new_password)
+    with _get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE users SET password_hash = ?, salt = ? WHERE id = ?",
+            (hashed, salt, user_id),
+        )
+        return cur.rowcount > 0
+
+
+def delete_user(user_id: int) -> bool:
+    with _get_conn() as conn:
+        cur = conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        return cur.rowcount > 0
+
+
+def verify_user(username: str, password: str) -> dict | None:
+    user = get_user(username)
+    if not user:
+        return None
+    if _verify_password(password, user["password_hash"], user["salt"]):
+        return get_user_by_id(user["id"])
+    return None
 
 
 init_db()

@@ -19,13 +19,10 @@ from database import (save_flight, get_all_flights, get_flight, delete_flight,
                       create_vehicle, update_vehicle, delete_vehicle,
                       set_vehicle_photo, get_vehicle_stats, assign_vehicle_to_flight,
                       get_all_tags, set_flight_tags, get_flight_tags,
-                      get_battery_health_by_vehicle)
+                      get_battery_health_by_vehicle,
+                      create_user, get_user, get_user_by_id, get_all_users,
+                      update_user, change_password, delete_user, verify_user)
 import httpx
-
-USER = os.environ.get("POCKET_USER")
-PASS = os.environ.get("POCKET_PASS")
-if not USER or not PASS:
-    raise RuntimeError("POCKET_USER and POCKET_PASS environment variables must be set")
 
 SECRET_FILE = Path(__file__).parent / "data" / ".session_secret"
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
@@ -193,8 +190,11 @@ async def login(request: Request):
     body = await request.json()
     user = body.get("user", "")
     pwd = body.get("pass", "")
-    if secrets.compare_digest(user, USER) and secrets.compare_digest(pwd, PASS):
+    db_user = verify_user(user, pwd)
+    if db_user:
         request.session["authenticated"] = True
+        request.session["username"] = db_user["username"]
+        request.session["role"] = db_user["role"]
         return {"ok": True}
     return JSONResponse({"error": "Invalid credentials"}, status_code=401)
 
@@ -203,6 +203,12 @@ async def login(request: Request):
 async def logout(request: Request):
     request.session.clear()
     return RedirectResponse(url="/flight/login", status_code=303)
+
+
+def require_admin(request: Request):
+    if request.session.get("role") != "admin":
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    return None
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -934,3 +940,106 @@ async def api_battery_per_vehicle(request: Request):
         return denied
     vehicle_id = request.query_params.get("vehicle_id")
     return get_battery_health_by_vehicle(int(vehicle_id) if vehicle_id else None)
+
+
+# --- User management (admin only) ---
+
+@app.get("/users", response_class=HTMLResponse)
+async def users_page(request: Request):
+    redirect = require_auth(request)
+    if redirect:
+        return redirect
+    forbidden = require_admin(request)
+    if forbidden:
+        return forbidden
+    users = get_all_users()
+    return templates.TemplateResponse(request, "users.html", {"users": users})
+
+
+@app.get("/api/users")
+async def api_list_users(request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    forbidden = require_admin(request)
+    if forbidden:
+        return forbidden
+    return get_all_users()
+
+
+@app.post("/api/users")
+async def api_create_user(request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    forbidden = require_admin(request)
+    if forbidden:
+        return forbidden
+    body = await request.json()
+    username = body.get("username", "").strip()
+    password = body.get("password", "")
+    role = body.get("role", "viewer")
+    if not username or not password:
+        return JSONResponse({"error": "username and password required"}, status_code=400)
+    if role not in ("admin", "viewer"):
+        return JSONResponse({"error": "role must be admin or viewer"}, status_code=400)
+    user = create_user(username, password, role)
+    if not user:
+        return JSONResponse({"error": "username already exists"}, status_code=409)
+    return {"id": user["id"], "username": user["username"], "role": user["role"]}
+
+
+@app.put("/api/users/{user_id}")
+async def api_update_user(user_id: int, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    forbidden = require_admin(request)
+    if forbidden:
+        return forbidden
+    body = await request.json()
+    user = update_user(
+        user_id,
+        username=body.get("username"),
+        role=body.get("role"),
+    )
+    if not user:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return {"id": user["id"], "username": user["username"], "role": user["role"]}
+
+
+@app.delete("/api/users/{user_id}")
+async def api_delete_user(user_id: int, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    forbidden = require_admin(request)
+    if forbidden:
+        return forbidden
+    user = get_user_by_id(user_id)
+    if not user:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    if user["username"] == request.session.get("username"):
+        return JSONResponse({"error": "cannot delete yourself"}, status_code=400)
+    delete_user(user_id)
+    return {"deleted": user_id}
+
+
+@app.post("/api/users/{user_id}/change-password")
+async def api_change_password(user_id: int, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    body = await request.json()
+    new_password = body.get("password", "")
+    if not new_password:
+        return JSONResponse({"error": "password required"}, status_code=400)
+    user = get_user_by_id(user_id)
+    if not user:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    is_admin = request.session.get("role") == "admin"
+    is_self = user["username"] == request.session.get("username")
+    if not is_admin and not is_self:
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    change_password(user_id, new_password)
+    return {"ok": True}
