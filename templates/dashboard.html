@@ -8,6 +8,7 @@
             <label for="uploadInput" class="btn-primary btn-upload">Import CSV</label>
             <input type="file" id="uploadInput" accept=".csv" style="display:none">
             <button id="scanBtn" class="btn-primary">Scan Folder</button>
+            <button id="reprocessBtn" class="btn-primary" style="background:var(--accent);">Reprocess All</button>
         </div>
     </div>
 
@@ -339,6 +340,23 @@ document.getElementById('scanBtn').addEventListener('click', async () => {
         alert('Error scanning: ' + e.message);
     }
     btn.textContent = 'Scan Folder';
+    btn.disabled = false;
+});
+
+document.getElementById('reprocessBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('reprocessBtn');
+    btn.textContent = 'Reprocessing...';
+    btn.disabled = true;
+    try {
+        const res = await fetch('/flight/api/reprocess', { method: 'POST' });
+        const data = await res.json();
+        const n = (data.reprocessed || []).length;
+        alert('Reprocessed ' + n + ' flight(s)');
+        window.location.reload();
+    } catch(e) {
+        alert('Error: ' + e.message);
+    }
+    btn.textContent = 'Reprocess All';
     btn.disabled = false;
 });
 

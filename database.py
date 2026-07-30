@@ -308,6 +308,7 @@ def _haversine_km(lat1, lon1, lat2, lon2):
 
 
 def recalculate_home_distances():
+    import math as _m
     with _get_conn() as conn:
         rows = conn.execute("SELECT filename, coordinates FROM flights").fetchall()
     updated = 0
@@ -316,6 +317,8 @@ def recalculate_home_distances():
         coords = json.loads(coords_json) if coords_json else []
         if len(coords) < 2:
             continue
+
+        # home distance
         home_lat, home_lon = 0.0, 0.0
         for c in coords:
             lat, lon = c[0], c[1]
@@ -338,12 +341,35 @@ def recalculate_home_distances():
         total_dist_km = 0.0
         for i in range(1, len(coords)):
             total_dist_km += _haversine_km(coords[i-1][0], coords[i-1][1], coords[i][0], coords[i][1])
+
+        # glide ratio
         alt_loss = max(alts) - min(alts)
         new_glide = round(total_dist_km * 1000 / alt_loss, 2) if alt_loss > 0 else 0
 
+        # efficiency (km per 1000 mAh)
+        capas = [c[30] for c in coords if len(c) > 30]
+        consumed_mah = (capas[-1] - capas[0]) if capas else 0
+        new_efficiency = round(total_dist_km / consumed_mah * 1000, 2) if consumed_mah > 0 else 0
+
+        # vibration score
+        new_vibration = 0.0
+        if len(coords) >= 10:
+            pitch_vals = [c[7] for c in coords if len(c) > 7]
+            roll_vals = [c[8] for c in coords if len(c) > 8]
+            if len(pitch_vals) >= 10:
+                window = max(10, len(pitch_vals) // 20)
+                pitch_var = sum((pitch_vals[i] - sum(pitch_vals[i:i+window]) / window) ** 2
+                                for i in range(len(pitch_vals) - window)) / max(1, len(pitch_vals) - window)
+                roll_var = sum((roll_vals[i] - sum(roll_vals[i:i+window]) / window) ** 2
+                               for i in range(len(roll_vals) - window)) / max(1, len(roll_vals) - window)
+                new_vibration = round(_m.sqrt(pitch_var + roll_var), 4)
+
         with _get_conn() as conn:
-            conn.execute("UPDATE flights SET home_distance_km = ?, glide_ratio = ? WHERE filename = ?",
-                         (new_home_dist, new_glide, fn))
+            conn.execute("""UPDATE flights SET
+                home_distance_km = ?, glide_ratio = ?,
+                efficiency_km_per_mah = ?, vibration_score = ?
+                WHERE filename = ?""",
+                (new_home_dist, new_glide, new_efficiency, new_vibration, fn))
         updated += 1
     return updated
 

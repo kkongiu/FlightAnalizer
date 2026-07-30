@@ -370,6 +370,29 @@ async def upload_log(request: Request, file: UploadFile = File(...)):
         return JSONResponse({"error": "Failed to parse file"}, status_code=400)
 
 
+@app.post("/api/reprocess")
+async def reprocess_flights(request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    results = []
+    for f in sorted(LOG_DIR.glob("*.csv")):
+        key = f.name
+        try:
+            points = parse_log(f)
+            if not points:
+                continue
+            summary = analyze(key, points)
+            existing = get_flight(key)
+            if existing:
+                summary.vehicle_id = existing.get("vehicle_id")
+            save_flight(summary)
+            results.append(key)
+        except Exception as e:
+            results.append(f"{key}: error: {e}")
+    return {"reprocessed": results}
+
+
 @app.get("/api/flights")
 async def api_flights(request: Request):
     denied = require_api_auth(request)
