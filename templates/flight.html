@@ -461,14 +461,25 @@ if (events.length) {
     const modeIdx = 23;
     const modeColor = (m) => {
         const colors = {
-            'Stabilize': '#6366f1', 'Angle': '#8b5cf6', 'Horizon': '#a855f7',
-            'Acro': '#ec4899', 'AirMode': '#f43f5e', 'RTH': '#22c55e',
-            'Land': '#ef4444', 'Loiter': '#3b82f6', 'AltHold': '#14b8a6',
-            'PosHold': '#06b6d4', 'Circle': '#0ea5e9', 'Waypoint': '#0284c7',
-            'Manual': '#f59e0b', 'Sport': '#eab308', '3D': '#84cc16',
-            'GPS Rescue': '#22d3ee', 'FAILSAFE': '#dc2626',
+            'stabilize': '#6366f1', 'stab': '#6366f1',
+            'angle': '#2563eb', 'angl': '#2563eb', 'ang': '#2563eb',
+            'horizon': '#06b6d4', 'hor': '#06b6d4',
+            'acro': '#ec4899',
+            'airmode': '#84cc16', 'air': '#84cc16',
+            'rth': '#22c55e', 'return to home': '#22c55e',
+            'land': '#ef4444',
+            'loiter': '#f59e0b', 'loit': '#f59e0b',
+            'althold': '#14b8a6', 'alth': '#14b8a6', 'alt hold': '#14b8a6',
+            'poshold': '#a855f7', 'phld': '#a855f7', 'pos hold': '#a855f7',
+            'circle': '#0ea5e9', 'circ': '#0ea5e9',
+            'waypoint': '#fb923c', 'wp': '#fb923c', 'wpt': '#fb923c',
+            'manual': '#dc2626', 'manu': '#dc2626', 'man': '#dc2626',
+            'sport': '#eab308',
+            '3d': '#8b5cf6',
+            'gps rescue': '#22d3ee', 'gpsr': '#22d3ee',
+            'failsafe': '#7f1d1d', 'fail': '#7f1d1d',
         };
-        return colors[m] || '#6b7280';
+        return colors[m.toLowerCase().trim()] || '#6b7280';
     };
     const modes = coords.map(c => c[modeIdx] || '');
     const unique = [...new Set(modes.filter(Boolean))];

@@ -18,7 +18,8 @@ from database import (save_flight, get_all_flights, get_flight, delete_flight,
                       get_vehicles, get_vehicle, get_default_vehicle,
                       create_vehicle, update_vehicle, delete_vehicle,
                       set_vehicle_photo, get_vehicle_stats, assign_vehicle_to_flight,
-                      get_all_tags, set_flight_tags, get_flight_tags)
+                      get_all_tags, set_flight_tags, get_flight_tags,
+                      get_battery_health_by_vehicle)
 
 USER = os.environ.get("POCKET_USER")
 PASS = os.environ.get("POCKET_PASS")
