@@ -3,5 +3,9 @@ venv/
 *.pyc
 data/flights.db
 data/.session_secret
+data/vehicle_photos/
 *.csv
 .env
+server.log
+TEST *
+BUGS.md
