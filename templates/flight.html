@@ -103,6 +103,18 @@
             <div class="chart-container"><canvas id="vspdChart"></canvas></div>
             <div class="chart-container"><canvas id="headingChart"></canvas></div>
         </div>
+        <div class="chart-row">
+            <div class="chart-container"><canvas id="linkQualityChart"></canvas></div>
+            <div class="chart-container"><canvas id="currentChart"></canvas></div>
+        </div>
+        <div class="chart-row">
+            <div class="chart-container"><canvas id="capacityChart"></canvas></div>
+            <div class="chart-container"><canvas id="txbatChart"></canvas></div>
+        </div>
+        <div class="chart-row">
+            <div class="chart-container"><canvas id="thrCurrChart"></canvas></div>
+            <div class="chart-container"><canvas id="stickResponseChart"></canvas></div>
+        </div>
     </div>
 
     <div class="stats-grid">
@@ -416,7 +428,7 @@ function updatePlane(idx) {
     updateController(ts);
 }
 function updateController(d) {
-    const hasData = d && d.length >= 24;
+    const hasData = d && d.length >= 33;
     const setNum = (id, v) => { document.getElementById(id).textContent = hasData ? v : '—'; };
     const mapVal = (v) => ((v + 1024) / 2048) * 100;
     if (hasData) {
@@ -561,19 +573,15 @@ new Chart(document.getElementById('rssiChart'), {
     type: 'line',
     data: {
         labels: times.map(fmtTime),
-        datasets: [{
-            label: 'RSSI (dB)',
-            data: rssis,
-            borderColor: 'rgb(153, 102, 255)',
-            backgroundColor: 'rgba(153, 102, 255, 0.12)',
-            fill: true,
-            pointRadius: 0,
-        }]
+        datasets: [
+            {label: '1RSS (dB)', data: rssis, borderColor: 'rgb(153, 102, 255)', backgroundColor: 'rgba(153, 102, 255, 0.12)', fill: true, pointRadius: 0},
+            {label: '2RSS (dB)', data: rssi2, borderColor: 'rgb(255, 99, 132)', backgroundColor: 'rgba(255, 99, 132, 0.08)', fill: true, pointRadius: 0},
+        ]
     },
     options: {
         responsive: true,
         elements: {line: {tension: 0.4, cubicInterpolationMode: 'monotone'}},
-        plugins: {legend: {display: false}, title: {display: true, text: 'RSSI Signal Strength'}},
+        plugins: {legend: {display: true, position: 'bottom', labels: {boxWidth: 12, font: {size: 9}}}, title: {display: true, text: 'RSSI Signal Strength'}},
         scales: {x: {ticks: {maxTicksLimit: 8, font: {size: 10}}}, y: {beginAtZero: false}}
     }
 });
@@ -608,6 +616,15 @@ const thr = displayCoords.map(c => c.length > 12 ? c[12] : 0);
 const ail = displayCoords.map(c => c.length > 13 ? c[13] : 0);
 const vspd = displayCoords.map(c => c.length > 14 ? c[14] : 0);
 const heading = displayCoords.map(c => c.length > 15 ? c[15] : 0);
+const rssi2 = displayCoords.map(c => c.length > 24 ? c[24] : 0);
+const rsnr = displayCoords.map(c => c.length > 25 ? c[25] : 0);
+const trss = displayCoords.map(c => c.length > 26 ? c[26] : 0);
+const tqly = displayCoords.map(c => c.length > 27 ? c[27] : 0);
+const tsnr = displayCoords.map(c => c.length > 28 ? c[28] : 0);
+const curr = displayCoords.map(c => c.length > 29 ? c[29] : 0);
+const capa = displayCoords.map(c => c.length > 30 ? c[30] : 0);
+const txbat = displayCoords.map(c => c.length > 31 ? c[31] : 0);
+const batPct = displayCoords.map(c => c.length > 32 ? c[32] : 0);
 
 new Chart(document.getElementById('navChart'), {
     type: 'line',
@@ -674,6 +691,145 @@ new Chart(document.getElementById('headingChart'), {
         elements: {line: {tension: 0.4, cubicInterpolationMode: 'monotone'}},
         plugins: {legend: {display: false}, title: {display: true, text: 'Heading / Compass'}},
         scales: {x: {ticks: {maxTicksLimit: 8, font: {size: 10}}}, y: {beginAtZero: false}}
+    }
+});
+
+// Link Quality
+new Chart(document.getElementById('linkQualityChart'), {
+    type: 'line',
+    data: {
+        labels: times.map(fmtTime),
+        datasets: [
+            {label: 'RSNR (dB)', data: rsnr, borderColor: '#22c55e', pointRadius: 0, yAxisID: 'y'},
+            {label: 'TSNR (dB)', data: tsnr, borderColor: '#3b82f6', pointRadius: 0, yAxisID: 'y'},
+            {label: 'TQly (%)', data: tqly, borderColor: '#eab308', pointRadius: 0, yAxisID: 'y1'},
+        ]
+    },
+    options: {
+        responsive: true,
+        elements: {line: {tension: 0.4, cubicInterpolationMode: 'monotone'}},
+        plugins: {legend: {display: true, position: 'bottom', labels: {boxWidth: 12, font: {size: 9}}}, title: {display: true, text: 'Link Quality'}},
+        scales: {
+            x: {ticks: {maxTicksLimit: 8, font: {size: 10}}},
+            y: {title: {display: true, text: 'SNR (dB)'}, position: 'left', beginAtZero: true},
+            y1: {title: {display: true, text: 'Quality (%)'}, position: 'right', beginAtZero: true, grid: {drawOnChartArea: false}, max: 100}
+        }
+    }
+});
+
+// Current Draw
+new Chart(document.getElementById('currentChart'), {
+    type: 'line',
+    data: {
+        labels: times.map(fmtTime),
+        datasets: [{
+            label: 'Current (A)',
+            data: curr,
+            borderColor: '#f97316',
+            backgroundColor: 'rgba(249, 115, 22, 0.08)',
+            fill: true,
+            pointRadius: 0,
+        }]
+    },
+    options: {
+        responsive: true,
+        elements: {line: {tension: 0.4, cubicInterpolationMode: 'monotone'}},
+        plugins: {legend: {display: false}, title: {display: true, text: 'Current Draw'}},
+        scales: {x: {ticks: {maxTicksLimit: 8, font: {size: 10}}}, y: {beginAtZero: true}}
+    }
+});
+
+// Capacity
+new Chart(document.getElementById('capacityChart'), {
+    type: 'line',
+    data: {
+        labels: times.map(fmtTime),
+        datasets: [
+            {label: 'Capa (mAh)', data: capa, borderColor: '#8b5cf6', pointRadius: 0, yAxisID: 'y'},
+            {label: 'Bat%', data: batPct, borderColor: '#22c55e', pointRadius: 0, yAxisID: 'y1'},
+        ]
+    },
+    options: {
+        responsive: true,
+        elements: {line: {tension: 0.4, cubicInterpolationMode: 'monotone'}},
+        plugins: {legend: {display: true, position: 'bottom', labels: {boxWidth: 12, font: {size: 9}}}, title: {display: true, text: 'Battery Capacity'}},
+        scales: {
+            x: {ticks: {maxTicksLimit: 8, font: {size: 10}}},
+            y: {title: {display: true, text: 'mAh'}, position: 'left', beginAtZero: false},
+            y1: {title: {display: true, text: '%'}, position: 'right', beginAtZero: true, max: 100, grid: {drawOnChartArea: false}}
+        }
+    }
+});
+
+// Tx Battery
+new Chart(document.getElementById('txbatChart'), {
+    type: 'line',
+    data: {
+        labels: times.map(fmtTime),
+        datasets: [{
+            label: 'TxBat (V)',
+            data: txbat,
+            borderColor: '#ec4899',
+            backgroundColor: 'rgba(236, 72, 153, 0.08)',
+            fill: true,
+            pointRadius: 0,
+        }]
+    },
+    options: {
+        responsive: true,
+        elements: {line: {tension: 0.4, cubicInterpolationMode: 'monotone'}},
+        plugins: {legend: {display: false}, title: {display: true, text: 'Transmitter Battery'}},
+        scales: {x: {ticks: {maxTicksLimit: 8, font: {size: 10}}}, y: {beginAtZero: false}}
+    }
+});
+
+// Throttle vs Current (scatter)
+new Chart(document.getElementById('thrCurrChart'), {
+    type: 'scatter',
+    data: {
+        datasets: [{
+            label: 'Thr vs Curr',
+            data: displayCoords.filter(c => c.length >= 33).map(c => ({x: c[12], y: c[29]})),
+            backgroundColor: 'rgba(0, 212, 255, 0.4)',
+            pointRadius: 2,
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {legend: {display: false}, title: {display: true, text: 'Throttle vs Current'}},
+        scales: {
+            x: {title: {display: true, text: 'Throttle'}, beginAtZero: true},
+            y: {title: {display: true, text: 'Current (A)'}, beginAtZero: true}
+        }
+    }
+});
+
+// Stick Response (Ail vs Roll, Ele vs Pitch)
+new Chart(document.getElementById('stickResponseChart'), {
+    type: 'scatter',
+    data: {
+        datasets: [
+            {
+                label: 'Ail → Roll',
+                data: displayCoords.filter(c => c.length >= 33).map(c => ({x: c[13], y: c[8]})),
+                backgroundColor: 'rgba(34, 197, 94, 0.3)',
+                pointRadius: 2,
+            },
+            {
+                label: 'Ele → Pitch',
+                data: displayCoords.filter(c => c.length >= 33).map(c => ({x: c[11], y: c[7]})),
+                backgroundColor: 'rgba(59, 130, 246, 0.3)',
+                pointRadius: 2,
+            },
+        ]
+    },
+    options: {
+        responsive: true,
+        plugins: {legend: {display: true, position: 'bottom', labels: {boxWidth: 12, font: {size: 9}}}, title: {display: true, text: 'Stick Response'}},
+        scales: {
+            x: {title: {display: true, text: 'Stick Input'}, beginAtZero: true},
+            y: {title: {display: true, text: 'Angle (rad)'}, beginAtZero: true}
+        }
     }
 });
 </script>

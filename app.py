@@ -509,7 +509,7 @@ async def api_rescan_nav(filename: str, request: Request):
         points = parse_log(csv_path)
     except Exception as e:
         return JSONResponse({"error": f"failed to parse CSV: {e}"}, status_code=400)
-    nav_list = sorted([(p.timestamp, (p.pitch, p.roll, p.yaw, p.rud, p.ele, p.thr, p.ail, p.vspd, p.heading, p.sa, p.sb, p.sc, p.sd, p.se, p.lsw, p.p1, p.flight_mode)) for p in points])
+    nav_list = sorted([(p.timestamp, (p.pitch, p.roll, p.yaw, p.rud, p.ele, p.thr, p.ail, p.vspd, p.heading, p.sa, p.sb, p.sc, p.sd, p.se, p.lsw, p.p1, p.flight_mode, p.rssi_2, p.rsnr, p.trss, p.tqly, p.tsnr, p.curr, p.capa, p.bat_pct, p.txbat)) for p in points])
     nav_tss = [t for t, _ in nav_list]
 
     def find_nearest(ts, max_delta=0.6):
@@ -537,12 +537,12 @@ async def api_rescan_nav(filename: str, request: Request):
         nav = nav_by_ts.get(nearest)
         if nav:
             matched += 1
-            if len(c) >= 24:
-                c[7], c[8], c[9], c[10], c[11], c[12], c[13], c[14], c[15], c[16], c[17], c[18], c[19], c[20], c[21], c[22], c[23] = nav
+            if len(c) >= 33:
+                c[7], c[8], c[9], c[10], c[11], c[12], c[13], c[14], c[15], c[16], c[17], c[18], c[19], c[20], c[21], c[22], c[23], c[24], c[25], c[26], c[27], c[28], c[29], c[30], c[31], c[32] = nav
             else:
                 c = list(c) + list(nav)
-        elif len(c) < 24:
-            c = list(c) + [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '']
+        elif len(c) < 33:
+            c = list(c) + [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '', 0, 0, 0, 0, 0, 0, 0, 0, 0]
         updated.append(c)
     flight["coordinates"] = updated
     update_flight_track(filename, updated, {

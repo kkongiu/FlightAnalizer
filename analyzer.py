@@ -52,7 +52,8 @@ def analyze(filename: str, points: list[TelemetryPoint]) -> FlightSummary:
     coords = [[p.lat, p.lon, p.alt, p.gspd, p.timestamp, p.rssi_1, p.rxbt,
                p.pitch, p.roll, p.yaw, p.rud, p.ele, p.thr, p.ail,
                p.vspd, p.heading,
-               p.sa, p.sb, p.sc, p.sd, p.se, p.lsw, p.p1, p.flight_mode] for p in points]
+               p.sa, p.sb, p.sc, p.sd, p.se, p.lsw, p.p1, p.flight_mode,
+               p.rssi_2, p.rsnr, p.trss, p.tqly, p.tsnr, p.curr, p.capa, p.bat_pct, p.txbat] for p in points]
 
     return FlightSummary(
         filename=filename,
