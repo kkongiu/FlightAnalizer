@@ -333,8 +333,17 @@ def recalculate_home_distances():
             continue
         home_dists = [_haversine_km(home_lat, home_lon, c[0], c[1]) for c in coords if abs(c[0]) > 0.001 or abs(c[1]) > 0.001]
         new_home_dist = round(max(home_dists), 3) if home_dists else 0
+
+        alts = [c[2] for c in coords]
+        total_dist_km = 0.0
+        for i in range(1, len(coords)):
+            total_dist_km += _haversine_km(coords[i-1][0], coords[i-1][1], coords[i][0], coords[i][1])
+        alt_loss = max(alts) - min(alts)
+        new_glide = round(total_dist_km * 1000 / alt_loss, 2) if alt_loss > 0 else 0
+
         with _get_conn() as conn:
-            conn.execute("UPDATE flights SET home_distance_km = ? WHERE filename = ?", (new_home_dist, fn))
+            conn.execute("UPDATE flights SET home_distance_km = ?, glide_ratio = ? WHERE filename = ?",
+                         (new_home_dist, new_glide, fn))
         updated += 1
     return updated
 

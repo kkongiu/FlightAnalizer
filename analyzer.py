@@ -66,9 +66,9 @@ def analyze(filename: str, points: list[TelemetryPoint]) -> FlightSummary:
     home_dists = [haversine_km(home_lat, home_lon, p.lat, p.lon) for p in points if abs(p.lat) > 0.001 or abs(p.lon) > 0.001]
     home_distance_km = round(max(home_dists), 3) if home_dists else 0
 
-    # Glide ratio: horizontal distance / altitude lost (only when descending)
+    # Glide ratio: horizontal distance (m) / altitude lost (m)
     alt_loss = max(alts) - min(alts)
-    glide_ratio = round(total_dist / alt_loss, 2) if alt_loss > 0 else 0
+    glide_ratio = round(total_dist * 1000 / alt_loss, 2) if alt_loss > 0 else 0
 
     # Efficiency: km per 1000 mAh
     consumed_mah = (capas[-1] - capas[0]) if capas else 0
