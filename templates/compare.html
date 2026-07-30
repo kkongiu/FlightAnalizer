@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block title %}Compare Flights - Pocket Log Analyzer{% endblock %}
+{% block content %}
+<div class="compare-page">
+    <div class="header-bar">
+        <h2>Compare Flights</h2>
+        <div class="header-actions">
+            <button id="compareBtn" class="btn-primary" disabled>Compare Selected (0)</button>
+        </div>
+    </div>
+
+    <div class="compare-layout">
+        <div class="compare-sidebar">
+            <div class="search-bar" style="margin-bottom:0.5rem;">
+                <input type="text" id="searchInput" class="search-input" placeholder="Search flights...">
+            </div>
+            <div class="compare-flight-list" id="flightList">
+                {% for f in flights %}
+                <label class="compare-row" data-filename="{{ f.filename }}" data-date="{{ f.date }}">
+                    <input type="checkbox" class="flight-check" value="{{ f.filename }}">
+                    <span class="compare-row-info">
+                        <strong>{{ f.date }}</strong>
+                        {{ "%.2f"|format(f.distance_km) }} km · {{ f.duration_s | fmt_duration }}
+                    </span>
+                </label>
+                {% endfor %}
+            </div>
+            <div class="compare-legend" id="legend"></div>
+        </div>
+        <div class="compare-main">
+            <div id="compareMap" style="height:500px;border-radius:8px;overflow:hidden;"></div>
+            <div class="compare-table-wrap" id="compareTableWrap" style="display:none;">
+                <table id="compareTable">
+                    <thead><tr>
+                        <th>Flight</th>
+                        <th>Date</th>
+                        <th>Distance</th>
+                        <th>Duration</th>
+                        <th>Max Alt</th>
+                        <th>Max Speed</th>
+                    </tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.compare-layout { display:flex; gap:1rem; margin-top:1rem; }
+.compare-sidebar { width:280px; flex-shrink:0; }
+.compare-main { flex:1; min-width:0; }
+.compare-flight-list { max-height:400px; overflow-y:auto; border:1px solid var(--border); border-radius:6px; background:var(--surface); }
+.compare-row { display:flex; align-items:center; gap:0.5rem; padding:0.4rem 0.6rem; cursor:pointer; border-bottom:1px solid var(--border); font-size:0.8rem; transition:background 0.15s; }
+.compare-row:hover { background:var(--surface-hover); }
+.compare-row:last-child { border-bottom:none; }
+.compare-row input { accent-color:var(--accent); }
+.compare-row-info { display:flex; flex-direction:column; gap:0.1rem; }
+.compare-row-info strong { font-size:0.75rem; }
+.compare-legend { margin-top:0.5rem; display:flex; flex-direction:column; gap:0.25rem; }
+.legend-item { display:flex; align-items:center; gap:0.4rem; font-size:0.7rem; }
+.legend-dot { width:12px; height:4px; border-radius:2px; flex-shrink:0; }
+.compare-table-wrap { margin-top:1rem; overflow-x:auto; }
+#compareTable { width:100%; font-size:0.8rem; }
+#compareTable th { text-align:left; padding:0.4rem 0.6rem; background:var(--surface); border-bottom:2px solid var(--accent); }
+#compareTable td { padding:0.3rem 0.6rem; border-bottom:1px solid var(--border); }
+@media (max-width:700px) {
+    .compare-layout { flex-direction:column; }
+    .compare-sidebar { width:100%; }
+}
+</style>
+<script>
+const COLORS = ['#0ea5e9','#f43f5e','#22c55e','#f59e0b','#a855f7','#06b6d4','#ec4899','#84cc16'];
+
+document.getElementById('searchInput').addEventListener('input', (e) => {
+    const q = e.target.value.toLowerCase();
+    document.querySelectorAll('.compare-row').forEach(row => {
+        const f = row.dataset.filename.toLowerCase();
+        const d = row.dataset.date.toLowerCase();
+        row.style.display = (!q || f.includes(q) || d.includes(q)) ? '' : 'none';
+    });
+});
+
+const map = L.map('compareMap').setView([0,0], 2);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution: '&copy; Esri, Maxar, Earthstar Geographics'
+}).addTo(map);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+    attribution: '&copy; Esri'
+}).addTo(map);
+
+let polylines = [];
+let markers = [];
+function updateCompare() {
+    const checked = [...document.querySelectorAll('.flight-check:checked')];
+    document.getElementById('compareBtn').textContent = 'Compare Selected (' + checked.length + ')';
+    document.getElementById('compareBtn').disabled = checked.length < 2;
+
+    polylines.forEach(p => map.removeLayer(p));
+    markers.forEach(m => map.removeLayer(m));
+    polylines = [];
+    markers = [];
+    document.getElementById('legend').innerHTML = '';
+    document.getElementById('compareTableWrap').style.display = 'none';
+    document.getElementById('compareTable').querySelector('tbody').innerHTML = '';
+
+    if (checked.length < 2) return;
+    const files = checked.map(c => c.value);
+    fetch('/flight/api/compare-coords?files=' + encodeURIComponent(files.join(',')))
+        .then(r => r.json()).then(data => {
+            const flights = data.flights || [];
+            if (flights.length < 2) return;
+
+            const bounds = L.latLngBounds();
+            flights.forEach((f, i) => {
+                const coords = f.coordinates || [];
+                if (!coords.length) return;
+                const color = COLORS[i % COLORS.length];
+
+                const latLngs = [coords[0]];
+                for (let j = 1; j < coords.length; j++) {
+                    if (coords[j][0] !== coords[j-1][0] || coords[j][1] !== coords[j-1][1]) {
+                        latLngs.push(coords[j]);
+                    }
+                }
+                const pts = latLngs.map(c => [c[0], c[1]]);
+                if (pts.length < 2) return;
+
+                function catmullRom(p0, p1, p2, p3, t) {
+                    const t2 = t * t, t3 = t2 * t;
+                    return [0.5 * ((2 * p1[0]) + (-p0[0] + p2[0]) * t + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3),
+                            0.5 * ((2 * p1[1]) + (-p0[1] + p2[1]) * t + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3)];
+                }
+                const interpolated = [pts[0]];
+                for (let j = 0; j < pts.length - 1; j++) {
+                    const p0 = j > 0 ? pts[j-1] : pts[j];
+                    const p1 = pts[j];
+                    const p2 = pts[j+1];
+                    const p3 = j+2 < pts.length ? pts[j+2] : pts[j+1];
+                    interpolated.push(p1);
+                    for (let s = 1; s <= 8; s++) {
+                        interpolated.push(catmullRom(p0, p1, p2, p3, s / 9));
+                    }
+                }
+                interpolated.push(pts[pts.length - 1]);
+
+                const poly = L.polyline(interpolated, {color, weight: 3, opacity: 0.85}).addTo(map);
+                polylines.push(poly);
+                pts.forEach(p => bounds.extend(p));
+
+                L.circleMarker(pts[0], {radius: 6, color, fillColor: color, fillOpacity: 1}).addTo(map).bindTooltip('Start: ' + f.filename);
+                L.circleMarker(pts[pts.length-1], {radius: 6, color, fillColor: color, fillOpacity: 1}).addTo(map).bindTooltip('End: ' + f.filename);
+            });
+
+            if (bounds.isValid()) map.fitBounds(bounds.pad(0.05));
+
+            // Legend
+            flights.forEach((f, i) => {
+                const color = COLORS[i % COLORS.length];
+                const item = document.createElement('div');
+                item.className = 'legend-item';
+                item.innerHTML = '<span class="legend-dot" style="background:' + color + ';"></span>' + f.filename;
+                document.getElementById('legend').appendChild(item);
+            });
+
+            // Comparison table
+            const tbody = document.getElementById('compareTable').querySelector('tbody');
+            flights.forEach((f, i) => {
+                const color = COLORS[i % COLORS.length];
+                const tr = document.createElement('tr');
+                tr.innerHTML = '<td><span class="legend-dot" style="display:inline-block;background:' + color + ';margin-right:0.3rem;"></span>' + f.filename + '</td>'
+                    + '<td>' + f.date + '</td>'
+                    + '<td>' + (f.distance_km ? f.distance_km.toFixed(2) : '-') + ' km</td>'
+                    + '<td>' + (f.duration_s ? Math.round(f.duration_s/60) + ' min' : '-') + '</td>'
+                    + '<td>' + (f.max_alt_m ? f.max_alt_m.toFixed(0) : '-') + ' m</td>'
+                    + '<td>' + (f.max_speed_kmh ? f.max_speed_kmh.toFixed(0) : '-') + ' km/h</td>';
+                tbody.appendChild(tr);
+            });
+            document.getElementById('compareTableWrap').style.display = '';
+        });
+}
+
+document.querySelectorAll('.flight-check').forEach(cb => {
+    cb.addEventListener('change', updateCompare);
+});
+</script>
+{% endblock %}

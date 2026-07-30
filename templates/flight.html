@@ -54,6 +54,9 @@
                         <option value="5">5x</option>
                         <option value="10">10x</option>
                     </select>
+                <div id="modeStripContainer" style="margin-top:0.35rem;display:none;">
+                    <div id="modeStrip" style="height:12px;border-radius:4px;overflow:hidden;display:flex;width:100%;"></div>
+                    <div id="modeLegend" style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-top:0.25rem;font-size:0.6rem;"></div>
                 </div>
             </div>
             <div class="controller-col">
@@ -189,6 +192,17 @@
             <span id="notesStatus" style="margin-left:0.5rem;font-size:0.75rem;color:#888;"></span>
         </div>
     </div>
+    <div class="notes-section" style="margin-top:0.75rem;">
+        <h3>Tags</h3>
+        <div id="tagsContainer" style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-bottom:0.3rem;"></div>
+        <div style="display:flex;gap:0.3rem;align-items:center;">
+            <input id="tagInput" list="tagSuggestions" placeholder="Add tag..." style="flex:1;padding:0.2rem 0.4rem;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:0.75rem;">
+            <datalist id="tagSuggestions"></datalist>
+            <button id="addTagBtn" class="btn-primary" style="font-size:0.65rem;padding:0.2rem 0.5rem;">Add</button>
+            <button id="saveTagsBtn" class="btn-primary" style="font-size:0.65rem;padding:0.2rem 0.5rem;">Save</button>
+            <span id="tagSavedMsg" style="font-size:0.65rem;color:#22c55e;display:none;">Saved</span>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -276,6 +290,67 @@ document.getElementById('saveVehicleBtn').addEventListener('click', async () => 
             setTimeout(() => { msg.style.display = 'none'; msg.style.color = '#22c55e'; msg.textContent = 'Saved'; }, 2000);
         }
     } catch(err) {
+        msg.textContent = 'Error';
+        msg.style.color = '#ef4444';
+        msg.style.display = 'inline';
+        setTimeout(() => { msg.style.display = 'none'; msg.style.color = '#22c55e'; msg.textContent = 'Saved'; }, 2000);
+    }
+});
+
+// Tags
+let currentTags = flight.tags || [];
+function renderTags() {
+    const container = document.getElementById('tagsContainer');
+    container.innerHTML = '';
+    currentTags.forEach(t => {
+        const span = document.createElement('span');
+        span.style.cssText = 'display:inline-flex;align-items:center;gap:0.2rem;padding:0.15rem 0.4rem;border-radius:4px;font-size:0.65rem;background:var(--accent);color:#fff;';
+        span.textContent = t;
+        const del = document.createElement('span');
+        del.textContent = '×';
+        del.style.cssText = 'cursor:pointer;font-weight:700;margin-left:0.15rem;';
+        del.addEventListener('click', () => {
+            currentTags = currentTags.filter(x => x !== t);
+            renderTags();
+        });
+        span.appendChild(del);
+        container.appendChild(span);
+    });
+}
+renderTags();
+fetch('/flight/api/tags').then(r => r.json()).then(data => {
+    const dl = document.getElementById('tagSuggestions');
+    (data.tags || []).forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t;
+        dl.appendChild(opt);
+    });
+});
+document.getElementById('addTagBtn').addEventListener('click', () => {
+    const input = document.getElementById('tagInput');
+    const val = input.value.trim();
+    if (val && !currentTags.includes(val)) {
+        currentTags.push(val);
+        renderTags();
+    }
+    input.value = '';
+});
+document.getElementById('tagInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('addTagBtn').click();
+});
+document.getElementById('saveTagsBtn').addEventListener('click', async () => {
+    const msg = document.getElementById('tagSavedMsg');
+    try {
+        const r = await fetch('/flight/api/flights/' + encodeURIComponent(filename) + '/tags', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({tags: currentTags})
+        });
+        if (r.ok) {
+            msg.style.display = 'inline';
+            setTimeout(() => msg.style.display = 'none', 2000);
+        }
+    } catch(e) {
         msg.textContent = 'Error';
         msg.style.color = '#ef4444';
         msg.style.display = 'inline';
@@ -380,6 +455,44 @@ if (events.length) {
         container.appendChild(badge);
     });
 }
+
+// Flight mode color strip
+(function() {
+    const modeIdx = 23;
+    const modeColor = (m) => {
+        const colors = {
+            'Stabilize': '#6366f1', 'Angle': '#8b5cf6', 'Horizon': '#a855f7',
+            'Acro': '#ec4899', 'AirMode': '#f43f5e', 'RTH': '#22c55e',
+            'Land': '#ef4444', 'Loiter': '#3b82f6', 'AltHold': '#14b8a6',
+            'PosHold': '#06b6d4', 'Circle': '#0ea5e9', 'Waypoint': '#0284c7',
+            'Manual': '#f59e0b', 'Sport': '#eab308', '3D': '#84cc16',
+            'GPS Rescue': '#22d3ee', 'FAILSAFE': '#dc2626',
+        };
+        return colors[m] || '#6b7280';
+    };
+    const modes = coords.map(c => c[modeIdx] || '');
+    const unique = [...new Set(modes.filter(Boolean))];
+    if (unique.length < 2) return;
+    document.getElementById('modeStripContainer').style.display = '';
+    const strip = document.getElementById('modeStrip');
+    const legend = document.getElementById('modeLegend');
+    for (let i = 0; i < modes.length; i++) {
+        if (!modes[i]) continue;
+        const seg = document.createElement('div');
+        seg.style.cssText = 'height:100%;flex:1;background:' + modeColor(modes[i]) + ';min-width:1px;';
+        seg.title = modes[i];
+        strip.appendChild(seg);
+    }
+    const shown = new Set();
+    unique.forEach(m => {
+        if (shown.has(m)) return;
+        shown.add(m);
+        const item = document.createElement('span');
+        item.style.cssText = 'display:inline-flex;align-items:center;gap:0.2rem;';
+        item.innerHTML = '<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + modeColor(m) + ';"></span>' + m;
+        legend.appendChild(item);
+    });
+})();
 
 // Deduplicate consecutive identical positions for a cleaner path
 const latLngs = [coords[0]];

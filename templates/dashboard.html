@@ -171,8 +171,20 @@
     {% endif %}
 
     <div class="chart-box-wide">
-        <h3>Battery Health</h3>
+        <h3>Battery Health (all flights)</h3>
         <div style="position:relative;max-height:250px;"><canvas id="batteryChart"></canvas></div>
+    </div>
+
+    <div class="chart-box-wide">
+        <h3>Battery Degradation
+            <select id="degradationVehicle" style="font-size:0.7rem;padding:0.1rem 0.3rem;margin-left:0.5rem;border-radius:4px;border:1px solid var(--border);background:var(--bg);color:var(--fg);">
+                <option value="">All vehicles</option>
+                {% for v in vehicles %}
+                <option value="{{ v.id }}">{{ v.name }}</option>
+                {% endfor %}
+            </select>
+        </h3>
+        <div style="position:relative;max-height:250px;"><canvas id="degradationChart"></canvas></div>
     </div>
 
     <div class="tables-section">
@@ -273,6 +285,38 @@ fetch('/flight/api/battery-health').then(r => r.json()).then(data => {
         }
     });
 });
+
+// Battery degradation per vehicle
+let degChart = null;
+function loadDegradation(vehicleId) {
+    const url = '/flight/api/battery-per-vehicle' + (vehicleId ? '?vehicle_id=' + vehicleId : '');
+    fetch(url).then(r => r.json()).then(data => {
+        if (!data.length) return;
+        if (degChart) degChart.destroy();
+        const labels = data.map(d => d.date);
+        const ctx = document.getElementById('degradationChart');
+        degChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [
+                    {label: 'Start V', data: data.map(d => d.battery_start_v), borderColor: '#22c55e', tension: 0.3, pointRadius: 3},
+                    {label: 'End V', data: data.map(d => d.battery_end_v), borderColor: '#ef4444', tension: 0.3, pointRadius: 3},
+                    {label: 'Min V', data: data.map(d => d.battery_min_v), borderColor: '#f59e0b', tension: 0.3, pointRadius: 3}
+                ]
+            },
+            options: {
+                responsive: true,
+                plugins: {title: {display: true, text: 'Voltage trend per flight'}},
+                scales: {y: {beginAtZero: false}}
+            }
+        });
+    });
+}
+document.getElementById('degradationVehicle').addEventListener('change', (e) => {
+    loadDegradation(e.target.value);
+});
+loadDegradation('');
 
 document.getElementById('scanBtn').addEventListener('click', async () => {
     const btn = document.getElementById('scanBtn');

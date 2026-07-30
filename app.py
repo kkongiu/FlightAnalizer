@@ -17,7 +17,8 @@ from database import (save_flight, get_all_flights, get_flight, delete_flight,
                       rename_flight, update_notes, update_flight_track,
                       get_vehicles, get_vehicle, get_default_vehicle,
                       create_vehicle, update_vehicle, delete_vehicle,
-                      set_vehicle_photo, get_vehicle_stats, assign_vehicle_to_flight)
+                      set_vehicle_photo, get_vehicle_stats, assign_vehicle_to_flight,
+                      get_all_tags, set_flight_tags, get_flight_tags)
 
 USER = os.environ.get("POCKET_USER")
 PASS = os.environ.get("POCKET_PASS")
@@ -77,6 +78,7 @@ app.add_middleware(
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 templates.env.filters["dict2str"] = dict2str
 templates.env.filters["fmt_duration"] = fmt_duration
+templates.env.globals["now"] = datetime.now
 LOG_DIR = Path(__file__).parent
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -209,8 +211,9 @@ async def dashboard(request: Request):
     flights = get_all_flights()
     stats = get_stats()
     vehicle_stats = get_vehicle_stats()
+    vehicles = get_vehicles()
     return templates.TemplateResponse(request, "dashboard.html", {
-        "flights": flights, "stats": stats, "vehicle_stats": vehicle_stats
+        "flights": flights, "stats": stats, "vehicle_stats": vehicle_stats, "vehicles": vehicles
     })
 
 
@@ -221,6 +224,72 @@ async def flight_list(request: Request):
         return redirect
     flights = get_all_flights()
     return templates.TemplateResponse(request, "flights.html", {"flights": flights})
+
+
+@app.get("/report", response_class=HTMLResponse)
+async def report_page(request: Request):
+    redirect = require_auth(request)
+    if redirect:
+        return redirect
+    flights = get_all_flights()
+    stats = get_stats()
+    vehicle_stats = get_vehicle_stats()
+    return templates.TemplateResponse(request, "report.html", {
+        "flights": flights, "stats": stats, "vehicle_stats": vehicle_stats
+    })
+
+
+@app.get("/compare", response_class=HTMLResponse)
+async def compare_page(request: Request):
+    redirect = require_auth(request)
+    if redirect:
+        return redirect
+    flights = get_all_flights()
+    return templates.TemplateResponse(request, "compare.html", {"flights": flights})
+
+
+@app.get("/api/compare-coords")
+async def api_compare_coords(request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    files = request.query_params.get("files", "")
+    if not files:
+        return {"flights": []}
+    names = [f.strip() for f in files.split(",") if f.strip()]
+    result = []
+    for name in names:
+        flight = get_flight(name)
+        if flight:
+            result.append({
+                "filename": flight["filename"],
+                "date": flight["date"],
+                "distance_km": flight["distance_km"],
+                "duration_s": flight["duration_s"],
+                "max_alt_m": flight["max_alt_m"],
+                "max_speed_kmh": flight["max_speed_kmh"],
+                "coordinates": flight["coordinates"]
+            })
+    return {"flights": result}
+
+
+@app.get("/api/tags")
+async def api_tags(request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    return {"tags": get_all_tags()}
+
+
+@app.post("/api/flights/{filename:path}/tags")
+async def api_set_tags(request: Request, filename: str):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    body = await request.json()
+    tags = body.get("tags", [])
+    set_flight_tags(filename, tags)
+    return {"tags": tags}
 
 
 @app.get("/flight/{filename:path}", response_class=HTMLResponse)
@@ -743,3 +812,12 @@ async def api_battery_health(request: Request):
             data.append({"date": d, "start_v": v_start, "end_v": v_end, "min_v": v_min,
                          "consumed_mah": f.get("battery_consumed_mah", 0)})
     return data
+
+
+@app.get("/api/battery-per-vehicle")
+async def api_battery_per_vehicle(request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    vehicle_id = request.query_params.get("vehicle_id")
+    return get_battery_health_by_vehicle(int(vehicle_id) if vehicle_id else None)

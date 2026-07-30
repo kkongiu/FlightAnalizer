@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Report - Pocket Log Analyzer{% endblock %}
+{% block content %}
+<div class="report-page">
+    <div class="header-bar">
+        <h2>Flight Report</h2>
+        <div style="display:flex;gap:0.5rem;align-items:center;">
+            <span style="font-size:0.75rem;color:var(--text-secondary);">Generated {{ now().strftime('%Y-%m-%d %H:%M') }}</span>
+            <button class="btn-primary" onclick="window.print()">🖨 Print / PDF</button>
+        </div>
+    </div>
+
+    <div class="report-grid">
+        <div class="report-card">
+            <h3>Summary</h3>
+            <table class="report-table">
+                <tr><td>Total Flights</td><td>{{ stats.total_flights }}</td></tr>
+                <tr><td>Total Distance</td><td>{{ "%.2f"|format(stats.total_distance_km) }} km</td></tr>
+                <tr><td>Total Flight Time</td><td>{{ stats.total_duration_s | fmt_duration }}</td></tr>
+            </table>
+        </div>
+
+        {% if vehicle_stats %}
+        <div class="report-card">
+            <h3>Fleet Summary</h3>
+            <table class="report-table">
+                {% for v in vehicle_stats %}
+                <tr><td>{{ v.name }}</td><td>{{ "%.1f"|format(v.total_km) }} km / {{ v.flight_count }} flights</td></tr>
+                {% endfor %}
+            </table>
+        </div>
+        {% endif %}
+
+        <div class="report-card">
+            <h3>Records</h3>
+            <table class="report-table">
+                <tr><td>Max Distance</td><td>{{ "%.2f"|format(stats.records.max_distance.value) }} km</td></tr>
+                <tr><td>Max Altitude</td><td>{{ "%.0f"|format(stats.records.max_alt.value) }} m</td></tr>
+                <tr><td>Max Speed</td><td>{{ "%.0f"|format(stats.records.max_speed.value) }} km/h</td></tr>
+                <tr><td>Longest Flight</td><td>{{ stats.records.max_duration.value | fmt_duration }}</td></tr>
+                <tr><td>Best Glide Ratio</td><td>{{ "%.1f"|format(stats.records.best_glide.value) }}</td></tr>
+            </table>
+        </div>
+    </div>
+
+    <div class="report-card" style="margin-top:1rem;">
+        <h3>Monthly Summary</h3>
+        <table class="report-table">
+            <thead><tr><th>Month</th><th>Flights</th><th>Distance (km)</th><th>Duration</th></tr></thead>
+            <tbody>
+            {% for m in stats.monthly %}
+            <tr><td>{{ m.period }}</td><td>{{ m.count }}</td><td>{{ "%.1f"|format(m.distance) }}</td><td>{{ m.duration | fmt_duration }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="report-card" style="margin-top:1rem;">
+        <h3>All Flights</h3>
+        <table class="report-table">
+            <thead><tr><th>Date</th><th>Duration</th><th>Distance</th><th>Max Alt</th><th>Max Speed</th></tr></thead>
+            <tbody>
+            {% for f in flights %}
+            <tr>
+                <td>{{ f.date }}</td>
+                <td>{{ f.duration_s | fmt_duration }}</td>
+                <td>{{ "%.2f"|format(f.distance_km) }} km</td>
+                <td>{{ "%.0f"|format(f.max_alt_m) }} m</td>
+                <td>{{ "%.0f"|format(f.max_speed_kmh) }} km/h</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<style>
+.report-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:1rem; margin-top:1rem; }
+.report-card { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:1rem; }
+.report-card h3 { margin:0 0 0.75rem; font-size:0.9rem; }
+.report-table { width:100%; border-collapse:collapse; font-size:0.8rem; }
+.report-table th,.report-table td { padding:0.3rem 0.5rem; text-align:left; border-bottom:1px solid var(--border); }
+.report-table th { font-weight:600; color:var(--accent); }
+@media print {
+    header, footer, .theme-toggle, form[method="POST"], .btn-primary { display:none !important; }
+    body { background:#fff !important; color:#000 !important; }
+    .report-card { border-color:#ddd !important; background:#fff !important; break-inside:avoid; }
+    .report-table td,.report-table th { color:#000 !important; }
+}
+</style>
+{% endblock %}

@@ -1,0 +1,13 @@
+{
+  "name": "Pocket Log Analyzer",
+  "short_name": "LogAnalyzer",
+  "description": "FPV Flight Telemetry Dashboard",
+  "start_url": "/flight/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0ea5e9",
+  "icons": [
+    {"src": "/flight/static/icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "/flight/static/icons/icon-512.png", "sizes": "512x512", "type": "image/png"}
+  ]
+}

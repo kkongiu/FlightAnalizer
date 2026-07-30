@@ -8,6 +8,9 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/flight/static/style.css">
+    <link rel="manifest" href="/flight/static/manifest.json">
+    <meta name="theme-color" content="#0ea5e9">
+    <meta name="apple-mobile-web-app-capable" content="yes">
     <link rel="stylesheet" href="/flight/static/vendor/leaflet.css" />
     <script src="/flight/static/vendor/leaflet.js"></script>
     <script src="/flight/static/vendor/chart.js"></script>
@@ -19,6 +22,8 @@
             <a href="/flight/">Dashboard</a>
             <a href="/flight/flights">Flights</a>
             <a href="/flight/vehicles">Vehicles</a>
+            <a href="/flight/compare">Compare</a>
+            <a href="/flight/report">Report</a>
             <button id="themeToggle" class="theme-toggle">🌙 Dark</button>
             <form method="POST" action="/flight/logout" style="display:inline;">
                 <button type="submit" class="nav-link-btn">Logout</button>
@@ -32,6 +37,9 @@
         <p>Pocket Log Analyzer — FPV Flight Telemetry Dashboard</p>
     </footer>
     <script>
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/flight/static/sw.js');
+    }
     (function() {
         const saved = localStorage.getItem('theme');
         if (saved === 'dark') document.documentElement.setAttribute('data-theme', 'dark');

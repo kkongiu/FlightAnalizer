@@ -10,8 +10,12 @@
             <button id="scanBtn" class="btn-primary">Scan Folder</button>
         </div>
     </div>
-    <div class="search-bar">
-        <input type="text" id="searchInput" class="search-input" placeholder="Search by filename or date...">
+    <div class="search-bar" style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+        <input type="text" id="searchInput" class="search-input" placeholder="Search by filename or date..." style="flex:1;min-width:150px;">
+        <select id="tagFilter" style="padding:0.25rem 0.5rem;border-radius:4px;border:1px solid var(--border);background:var(--bg);color:var(--fg);font-size:0.75rem;">
+            <option value="">All tags</option>
+            <option value="__untagged">Untagged</option>
+        </select>
     </div>
     {% if flights %}
     <div class="table-wrap">
@@ -31,7 +35,7 @@
             </thead>
             <tbody id="flightsBody">
             {% for f in flights %}
-                <tr class="flight-row" data-filename="{{ f.filename }}" data-date="{{ f.date }}">
+                <tr class="flight-row" data-filename="{{ f.filename }}" data-date="{{ f.date }}" data-tags="{{ f.tags | join(',') }}">
                     <td>{{ f.date }}</td>
                     <td>{{ f.start_time }}</td>
                     <td>{{ f.duration_s | fmt_duration }}</td>
@@ -58,11 +62,27 @@ const PAGE_SIZE = 20;
 let currentPage = 1;
 const allRows = Array.from(document.querySelectorAll('.flight-row'));
 
+// Load tags for filter dropdown
+fetch('/flight/api/tags').then(r => r.json()).then(data => {
+    const sel = document.getElementById('tagFilter');
+    (data.tags || []).forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t; opt.textContent = t;
+        sel.appendChild(opt);
+    });
+});
+
 function filterRows() {
     const q = document.getElementById('searchInput').value.toLowerCase();
+    const tagFilter = document.getElementById('tagFilter').value;
     return allRows.filter(r => {
-        return r.getAttribute('data-filename').toLowerCase().includes(q)
+        const matchSearch = r.getAttribute('data-filename').toLowerCase().includes(q)
             || r.getAttribute('data-date').includes(q);
+        if (!matchSearch) return false;
+        if (!tagFilter) return true;
+        const rowTags = (r.getAttribute('data-tags') || '').split(',').filter(Boolean);
+        if (tagFilter === '__untagged') return rowTags.length === 0;
+        return rowTags.includes(tagFilter);
     });
 }
 
@@ -86,6 +106,7 @@ function renderPage() {
 }
 
 document.getElementById('searchInput').addEventListener('input', () => { currentPage = 1; renderPage(); });
+document.getElementById('tagFilter').addEventListener('change', () => { currentPage = 1; renderPage(); });
 if (allRows.length > PAGE_SIZE) renderPage();
 
 document.querySelectorAll('.delete-btn').forEach(btn => {

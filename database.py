@@ -55,6 +55,10 @@ def init_db():
                 vehicle_id INTEGER DEFAULT NULL
             )
         """)
+        try:
+            conn.execute("ALTER TABLE flights ADD COLUMN tags TEXT DEFAULT '[]'")
+        except Exception:
+            pass
         conn.execute("""
             CREATE TABLE IF NOT EXISTS vehicles (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -90,6 +94,10 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
         d["events"] = json.loads(d["events"])
     else:
         d["events"] = []
+    if d.get("tags"):
+        d["tags"] = json.loads(d["tags"])
+    else:
+        d["tags"] = []
     return d
 
 
@@ -253,9 +261,51 @@ def get_vehicle_stats() -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def get_battery_health_by_vehicle(vehicle_id: int | None = None) -> list[dict]:
+    with _get_conn() as conn:
+        if vehicle_id:
+            rows = conn.execute("""
+                SELECT date, battery_start_v, battery_end_v, battery_min_v, battery_consumed_mah
+                FROM flights WHERE vehicle_id = ? AND battery_start_v > 0
+                ORDER BY date ASC
+            """, (vehicle_id,)).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT f.date, f.battery_start_v, f.battery_end_v, f.battery_min_v,
+                       f.battery_consumed_mah, v.id AS vehicle_id, v.name AS vehicle_name
+                FROM flights f LEFT JOIN vehicles v ON f.vehicle_id = v.id
+                WHERE f.battery_start_v > 0
+                ORDER BY v.name, f.date ASC
+            """).fetchall()
+    return [dict(r) for r in rows]
+
+
 def assign_vehicle_to_flight(filename: str, vehicle_id: int | None):
     with _get_conn() as conn:
         conn.execute("UPDATE flights SET vehicle_id = ? WHERE filename = ?", (vehicle_id, filename))
+
+
+def get_flight_tags(filename: str) -> list[str]:
+    with _get_conn() as conn:
+        row = conn.execute("SELECT tags FROM flights WHERE filename = ?", (filename,)).fetchone()
+        if row and row[0]:
+            return json.loads(row[0])
+        return []
+
+
+def set_flight_tags(filename: str, tags: list[str]):
+    with _get_conn() as conn:
+        conn.execute("UPDATE flights SET tags = ? WHERE filename = ?", (json.dumps(tags), filename))
+
+
+def get_all_tags() -> list[str]:
+    with _get_conn() as conn:
+        rows = conn.execute("SELECT tags FROM flights").fetchall()
+    all_tags = set()
+    for r in rows:
+        if r[0]:
+            all_tags.update(json.loads(r[0]))
+    return sorted(all_tags)
 
 
 init_db()
