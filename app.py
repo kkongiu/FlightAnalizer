@@ -494,6 +494,69 @@ async def api_export(request: Request, filename: str, format: str = "gpx"):
 
 
 
+@app.post("/api/flights/{filename:path}/rescan-nav")
+async def api_rescan_nav(filename: str, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    flight = get_flight(filename)
+    if not flight:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    csv_path = LOG_DIR / filename
+    if not csv_path.exists():
+        return JSONResponse({"error": "CSV file not found"}, status_code=404)
+    try:
+        points = parse_log(csv_path)
+    except Exception as e:
+        return JSONResponse({"error": f"failed to parse CSV: {e}"}, status_code=400)
+    nav_list = sorted([(p.timestamp, (p.pitch, p.roll, p.yaw, p.rud, p.ele, p.thr, p.ail, p.vspd, p.heading, p.sa, p.sb, p.sc, p.sd, p.se, p.lsw, p.p1, p.flight_mode)) for p in points])
+    nav_tss = [t for t, _ in nav_list]
+
+    def find_nearest(ts, max_delta=0.6):
+        if not nav_tss or ts == 0:
+            return None
+        import bisect
+        i = bisect.bisect_left(nav_tss, ts)
+        best = None
+        if i < len(nav_tss):
+            best = (nav_tss[i], abs(nav_tss[i] - ts))
+        if i > 0:
+            cand = (nav_tss[i - 1], abs(nav_tss[i - 1] - ts))
+            if best is None or cand[1] < best[1]:
+                best = cand
+        if best and best[1] <= max_delta:
+            return best[0]
+        return None
+
+    nav_by_ts = {t: v for t, v in nav_list}
+    updated = []
+    matched = 0
+    for c in flight.get("coordinates", []):
+        ts = c[4] if len(c) > 4 else 0
+        nearest = find_nearest(ts)
+        nav = nav_by_ts.get(nearest)
+        if nav:
+            matched += 1
+            if len(c) >= 24:
+                c[7], c[8], c[9], c[10], c[11], c[12], c[13], c[14], c[15], c[16], c[17], c[18], c[19], c[20], c[21], c[22], c[23] = nav
+            else:
+                c = list(c) + list(nav)
+        elif len(c) < 24:
+            c = list(c) + [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '']
+        updated.append(c)
+    flight["coordinates"] = updated
+    update_flight_track(filename, updated, {
+        "distance_km": flight.get("distance_km", 0),
+        "duration_s": flight.get("duration_s", 0),
+        "max_alt_m": flight.get("max_alt_m", 0),
+        "min_alt_m": flight.get("min_alt_m", 0),
+        "avg_alt_m": flight.get("avg_alt_m", 0),
+        "max_speed_kmh": flight.get("max_speed_kmh", 0),
+        "avg_speed_kmh": flight.get("avg_speed_kmh", 0),
+    })
+    return {"ok": True, "matched": matched, "total": len(updated)}
+
+
 @app.get("/api/battery-health")
 async def api_battery_health(request: Request):
     denied = require_api_auth(request)

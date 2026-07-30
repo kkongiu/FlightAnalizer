@@ -32,6 +32,13 @@ class TelemetryPoint:
     flight_mode: str
     sats: int
     txbat: float
+    sa: int = 0
+    sb: int = 0
+    sc: int = 0
+    sd: int = 0
+    se: int = 0
+    lsw: str = ""
+    p1: int = 0
 
 
 @dataclass

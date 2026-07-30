@@ -334,6 +334,32 @@ footer {
     box-shadow: 0 1px 4px rgba(0,0,0,0.08);
 }
 
+.map-section:-webkit-full-screen,
+.map-section:-moz-full-screen,
+.map-section:fullscreen {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: #0f0f23;
+    padding: 0.5rem;
+}
+.map-section:-webkit-full-screen .map-row,
+.map-section:-moz-full-screen .map-row,
+.map-section:fullscreen .map-row {
+    flex: 1;
+    min-height: 0;
+}
+.map-section:-webkit-full-screen .map-col,
+.map-section:-moz-full-screen .map-col,
+.map-section:fullscreen .map-col {
+    height: 100%;
+}
+.map-section:-webkit-full-screen #map,
+.map-section:-moz-full-screen #map,
+.map-section:fullscreen #map {
+    height: 100% !important;
+}
 .map-section h3, .charts-section h3 {
     color: #1a1a2e;
     margin-bottom: 0.5rem;
@@ -352,6 +378,9 @@ footer {
 
 .chart-container canvas {
     max-height: 180px;
+}
+.chart-container canvas#navChart {
+    max-height: 400px;
 }
 
 .chart-box {
@@ -607,4 +636,172 @@ footer {
 }
 [data-theme="dark"] .chart-box-wide h3 {
     color: #00d4ff;
+}
+
+/* Controller */
+.map-row {
+    display: flex;
+    gap: 0.75rem;
+}
+.map-col {
+    flex: 1;
+    min-width: 0;
+}
+.controller-col {
+    width: 240px;
+    flex-shrink: 0;
+}
+#controller {
+    background: #12121e;
+    border-radius: 10px;
+    padding: 0.5rem;
+    height: 450px;
+    display: flex;
+    flex-direction: column;
+    color: #e0e0e0;
+    border: 1px solid #2a2a3e;
+}
+.ctrl-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 0.2rem 0.3rem;
+    border-bottom: 1px solid #2a2a3e;
+    margin-bottom: 0.3rem;
+}
+.ctrl-title {
+    font-size: 0.6rem;
+    font-weight: 700;
+    color: #555;
+    letter-spacing: 1px;
+}
+.ctrl-fm {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #00d4ff;
+    letter-spacing: 0.5px;
+}
+.ctrl-switches {
+    display: flex;
+    justify-content: space-around;
+    padding: 0.2rem 0 0.4rem;
+}
+.ctrl-switch {
+    text-align: center;
+    min-width: 32px;
+}
+.sw-label {
+    display: block;
+    font-size: 0.5rem;
+    color: #666;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 1px;
+}
+.sw-pos {
+    display: inline-block;
+    font-size: 0.9rem;
+    line-height: 1;
+}
+.sw-up { color: #22c55e; }
+.sw-dn { color: #ef4444; }
+.sw-md { color: #555; }
+.ctrl-body {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+}
+.ctrl-gimbal {
+    text-align: center;
+}
+.gimbal-ring {
+    width: 90px;
+    height: 90px;
+    border-radius: 50%;
+    border: 2px solid #333;
+    background: #0a0a18;
+    position: relative;
+    margin: 0 auto;
+}
+.gimbal-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #00d4ff;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    transition: left 0.08s, top 0.08s;
+    box-shadow: 0 0 6px rgba(0,212,255,0.4);
+}
+.gimbal-vals {
+    font-size: 0.6rem;
+    color: #666;
+    margin-top: 0.2rem;
+    font-variant-numeric: tabular-nums;
+}
+.gimbal-label {
+    font-size: 0.55rem;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    margin-top: 0.1rem;
+}
+.ctrl-center {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.3rem;
+}
+.ctrl-p1 {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.15rem;
+}
+.p1-track {
+    width: 50px;
+    height: 4px;
+    background: #2a2a3e;
+    border-radius: 2px;
+    overflow: hidden;
+}
+.p1-fill {
+    height: 100%;
+    background: #f59e0b;
+    border-radius: 2px;
+    transition: width 0.08s;
+}
+.p1-val {
+    font-size: 0.6rem;
+    color: #888;
+    font-variant-numeric: tabular-nums;
+}
+[data-theme="dark"] .controller-col #controller {
+    background: #12121e;
+    border-color: #2a2a3e;
+}
+
+@media (max-width: 900px) {
+    .map-row {
+        flex-direction: column;
+    }
+    .controller-col {
+        width: 100%;
+    }
+    #controller {
+        height: auto;
+        flex-direction: row;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 0.3rem;
+        padding: 0.5rem;
+    }
+    .ctrl-header { order: 0; width: 100%; }
+    .ctrl-switches { order: 1; width: 100%; }
+    .ctrl-body { order: 2; width: 100%; gap: 0.5rem; }
 }

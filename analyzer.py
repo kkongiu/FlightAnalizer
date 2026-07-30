@@ -49,7 +49,10 @@ def analyze(filename: str, points: list[TelemetryPoint]) -> FlightSummary:
         m = p.flight_mode
         modes[m] = modes.get(m, 0) + 1
 
-    coords = [[p.lat, p.lon, p.alt, p.gspd, p.timestamp, p.rssi_1, p.rxbt] for p in points]
+    coords = [[p.lat, p.lon, p.alt, p.gspd, p.timestamp, p.rssi_1, p.rxbt,
+               p.pitch, p.roll, p.yaw, p.rud, p.ele, p.thr, p.ail,
+               p.vspd, p.heading,
+               p.sa, p.sb, p.sc, p.sd, p.se, p.lsw, p.p1, p.flight_mode] for p in points]
 
     return FlightSummary(
         filename=filename,

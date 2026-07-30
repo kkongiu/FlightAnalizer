@@ -60,6 +60,13 @@ def parse_log(filepath: str | Path) -> list[TelemetryPoint]:
                 flight_mode=str(row.get("FM", "OK")).strip(),
                 sats=safe_int(row.get("Sats", "0")),
                 txbat=safe_float(row.get("TxBat(V)", "0")),
+                sa=safe_int(row.get("SA", "0")),
+                sb=safe_int(row.get("SB", "0")),
+                sc=safe_int(row.get("SC", "0")),
+                sd=safe_int(row.get("SD", "0")),
+                se=safe_int(row.get("SE", "0")),
+                lsw=str(row.get("LSW", "")).strip(),
+                p1=safe_int(row.get("P1", "0")),
             )
             points.append(pt)
         except Exception:
