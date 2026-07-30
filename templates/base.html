@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Pocket Log Analyzer{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/flight/static/style.css">
     <link rel="stylesheet" href="/flight/static/vendor/leaflet.css" />
     <script src="/flight/static/vendor/leaflet.js"></script>
@@ -11,11 +14,12 @@
 </head>
 <body>
     <header>
-        <h1><a href="/flight/" class="header-logo">Pocket Log Analyzer</a></h1>
+        <h1><a href="/flight/" class="header-logo">◈ Pocket Log Analyzer</a></h1>
         <nav>
             <a href="/flight/">Dashboard</a>
             <a href="/flight/flights">Flights</a>
-            <button id="themeToggle" class="theme-toggle">Dark</button>
+            <a href="/flight/vehicles">Vehicles</a>
+            <button id="themeToggle" class="theme-toggle">🌙 Dark</button>
             <form method="POST" action="/flight/logout" style="display:inline;">
                 <button type="submit" class="nav-link-btn">Logout</button>
             </form>
@@ -25,18 +29,27 @@
         {% block content %}{% endblock %}
     </main>
     <footer>
-        <p>Pocket Log Analyzer - FPV Flight Telemetry Dashboard</p>
+        <p>Pocket Log Analyzer — FPV Flight Telemetry Dashboard</p>
     </footer>
     <script>
     (function() {
         const saved = localStorage.getItem('theme');
         if (saved === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
-        document.getElementById('themeToggle')?.addEventListener('click', () => {
-            const html = document.documentElement;
-            const isDark = html.getAttribute('data-theme') === 'dark';
-            html.setAttribute('data-theme', isDark ? '' : 'dark');
-            localStorage.setItem('theme', isDark ? '' : 'dark');
-        });
+        const btn = document.getElementById('themeToggle');
+        if (btn) {
+            const updateLabel = () => {
+                const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+                btn.textContent = isDark ? '☀️ Light' : '🌙 Dark';
+            };
+            updateLabel();
+            btn.addEventListener('click', () => {
+                const html = document.documentElement;
+                const isDark = html.getAttribute('data-theme') === 'dark';
+                html.setAttribute('data-theme', isDark ? '' : 'dark');
+                localStorage.setItem('theme', isDark ? '' : 'dark');
+                updateLabel();
+            });
+        }
     })();
     </script>
 </body>

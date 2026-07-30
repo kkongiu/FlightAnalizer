@@ -69,4 +69,19 @@ class FlightSummary:
     txbat_v: float
     flight_modes: dict
     sats_max: int
+    home_distance_km: float = 0.0
+    glide_ratio: float = 0.0
+    efficiency_km_per_mah: float = 0.0
+    vibration_score: float = 0.0
+    events: list = field(default_factory=list)
     coordinates: list = field(default_factory=list)
+    vehicle_id: Optional[int] = None
+
+
+@dataclass
+class Vehicle:
+    id: int
+    name: str
+    vehicle_type: str
+    photo: str = ""
+    is_default: bool = False

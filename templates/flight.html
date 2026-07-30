@@ -14,6 +14,17 @@
         <h2>{{ flight.date }} {{ flight.start_time }}</h2>
         <span class="filename" id="filenameDisplay">{{ flight.filename }}</span>
         <button class="btn-rename" id="renameBtn" style="margin-left:0.5rem;font-size:0.75rem;padding:0.15rem 0.5rem;vertical-align:middle;">&#9998;</button>
+        <div style="margin-top:0.3rem;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+            <span style="font-size:0.7rem;color:var(--text-secondary);font-weight:500;">Vehicle:</span>
+            <select id="vehicleSelect" style="padding:0.2rem 0.4rem;border:1px solid rgba(128,128,128,0.2);border-radius:4px;background:var(--bg);color:var(--text);font-size:0.75rem;max-width:180px;">
+                <option value="">— None —</option>
+                {% for v in vehicles %}
+                <option value="{{ v.id }}" {% if flight.vehicle_id == v.id %}selected{% endif %}>{{ v.name }}</option>
+                {% endfor %}
+            </select>
+            <button id="saveVehicleBtn" class="btn-primary" style="font-size:0.65rem;padding:0.2rem 0.5rem;">Save</button>
+            <span id="vehicleSavedMsg" style="font-size:0.65rem;color:#22c55e;display:none;">Saved</span>
+        </div>
         <div style="margin-top:0.5rem;display:flex;gap:0.3rem;flex-wrap:wrap;">
             <a class="btn-primary" href="/flight/api/export/{{ flight.filename }}?format=gpx" style="text-decoration:none;font-size:0.7rem;padding:0.25rem 0.6rem;">Export GPX</a>
             <a class="btn-primary" href="/flight/api/export/{{ flight.filename }}?format=kml" style="text-decoration:none;font-size:0.7rem;padding:0.25rem 0.6rem;">Export KML</a>
@@ -133,9 +144,14 @@
             <div class="stat-row"><span class="stat-label">Max VSpeed</span><span class="stat-value">{{ "%.1f"|format(flight.max_vspd_ms) }}m/s</span></div>
         </div>
         <div class="stat-card">
+            <div class="stat-row"><span class="stat-label">Home Dist</span><span class="stat-value">{{ "%.2f"|format(flight.home_distance_km) }}km</span></div>
+            <div class="stat-row"><span class="stat-label">Glide Ratio</span><span class="stat-value">{{ "%.1f"|format(flight.glide_ratio) }}</span></div>
+            <div class="stat-row"><span class="stat-label">Efficiency</span><span class="stat-value">{{ "%.2f"|format(flight.efficiency_km_per_mah) }}km/k</span></div>
+        </div>
+        <div class="stat-card">
             <div class="stat-row"><span class="stat-label">RSSI Min</span><span class="stat-value">{{ flight.min_rssi_db }}dB</span></div>
             <div class="stat-row"><span class="stat-label">RSSI Avg</span><span class="stat-value">{{ "%.1f"|format(flight.avg_rssi_db) }}dB</span></div>
-            <div class="stat-row"><span class="stat-label">RSSI Max</span><span class="stat-value">{{ flight.max_rssi_db }}dB</span></div>
+            <div class="stat-row"><span class="stat-label">Vibration</span><span class="stat-value">{{ "%.3f"|format(flight.vibration_score) }}</span></div>
         </div>
         <div class="stat-card">
             <div class="stat-row"><span class="stat-label">LQ Min</span><span class="stat-value">{{ flight.min_rqly }}%</span></div>
@@ -158,6 +174,11 @@
             <span class="stat-label">Flight Modes</span>
             <span class="stat-value" style="font-size:0.75rem;">{{ flight.flight_modes | dict2str }}</span>
         </div>
+    </div>
+
+    <div class="events-section" id="eventsSection" style="display:none;">
+        <h3>Flight Events</h3>
+        <div class="events-timeline" id="eventsTimeline"></div>
     </div>
 
     <div class="notes-section">
@@ -235,6 +256,33 @@ document.getElementById('renameBtn').addEventListener('click', () => renameFligh
 document.getElementById('deleteBtn').addEventListener('click', () => deleteFlight(filename));
 document.getElementById('saveNotesBtn').addEventListener('click', saveNotes);
 
+document.getElementById('saveVehicleBtn').addEventListener('click', async () => {
+    const sel = document.getElementById('vehicleSelect');
+    const vehicleId = sel.value ? parseInt(sel.value) : null;
+    const msg = document.getElementById('vehicleSavedMsg');
+    try {
+        const r = await fetch(`/flight/api/flights/${encodeURIComponent(filename)}/vehicle`, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({vehicle_id: vehicleId})
+        });
+        if (r.ok) {
+            msg.style.display = 'inline';
+            setTimeout(() => msg.style.display = 'none', 2000);
+        } else {
+            msg.textContent = 'Error';
+            msg.style.color = '#ef4444';
+            msg.style.display = 'inline';
+            setTimeout(() => { msg.style.display = 'none'; msg.style.color = '#22c55e'; msg.textContent = 'Saved'; }, 2000);
+        }
+    } catch(err) {
+        msg.textContent = 'Error';
+        msg.style.color = '#ef4444';
+        msg.style.display = 'inline';
+        setTimeout(() => { msg.style.display = 'none'; msg.style.color = '#22c55e'; msg.textContent = 'Saved'; }, 2000);
+    }
+});
+
 document.getElementById('gpxFileInput').addEventListener('change', function(e) {
     const file = e.target.files[0];
     if (!file) return;
@@ -310,6 +358,29 @@ document.getElementById('rescanNavBtn').addEventListener('click', async () => {
     btn.disabled = false;
 });
 
+// Events timeline
+const events = flight.events || [];
+if (events.length) {
+    document.getElementById('eventsSection').style.display = '';
+    const container = document.getElementById('eventsTimeline');
+    const fmtTs = (ts) => { const d = new Date(ts * 1000); return d.toLocaleTimeString(); };
+    events.forEach(e => {
+        const badge = document.createElement('span');
+        badge.className = 'event-badge ' + e.type;
+        const label = e.type === 'takeoff' ? '✈ Takeoff' : e.type === 'landing' ? '✈ Landing' : e.type === 'signal_loss' ? '⚠ Signal Loss' : '⇄ ' + e.mode;
+        badge.textContent = fmtTs(e.ts) + ' ' + label;
+        badge.title = 'Click to seek';
+        badge.addEventListener('click', () => {
+            const ratio = e.i / coords.length;
+            const idx = Math.round(ratio * (flightPath.length - 1));
+            if (playing) stopPlay();
+            updatePlane(idx);
+            timeline.value = Math.round((idx / (flightPath.length - 1)) * 1000);
+        });
+        container.appendChild(badge);
+    });
+}
+
 // Deduplicate consecutive identical positions for a cleaner path
 const latLngs = [coords[0]];
 for (let i = 1; i < coords.length; i++) {
@@ -355,6 +426,15 @@ const alts = displayCoords.map(c => c[2]);
 const speeds = displayCoords.map(c => c[3]);
 const rssis = displayCoords.map(c => c.length > 5 ? c[5] : 0);
 const batteries = displayCoords.map(c => c.length > 6 ? c[6] : 0);
+const rssi2 = displayCoords.map(c => c.length > 24 ? c[24] : 0);
+const rsnr = displayCoords.map(c => c.length > 25 ? c[25] : 0);
+const trss = displayCoords.map(c => c.length > 26 ? c[26] : 0);
+const tqly = displayCoords.map(c => c.length > 27 ? c[27] : 0);
+const tsnr = displayCoords.map(c => c.length > 28 ? c[28] : 0);
+const curr = displayCoords.map(c => c.length > 29 ? c[29] : 0);
+const capa = displayCoords.map(c => c.length > 30 ? c[30] : 0);
+const txbat = displayCoords.map(c => c.length > 31 ? c[31] : 0);
+const batPct = displayCoords.map(c => c.length > 32 ? c[32] : 0);
 
 // Map
 const map = L.map('map').setView([coords[0][0], coords[0][1]], 16);
@@ -386,7 +466,7 @@ const overlays = {
 
 L.control.layers(baseMaps, overlays, {collapsed: false}).addTo(map);
 
-const polyline = L.polyline(latLng, {color: '#00d4ff', weight: 3, opacity: 0.9}).addTo(map);
+const polyline = L.polyline(latLng, {color: '#0ea5e9', weight: 3, opacity: 0.9}).addTo(map);
 map.fitBounds(polyline.getBounds().pad(0.05));
 
 L.circleMarker([coords[0][0], coords[0][1]], {radius: 8, color: '#22c55e', fillColor: '#22c55e', fillOpacity: 1}).addTo(map).bindTooltip('Start');
@@ -616,15 +696,6 @@ const thr = displayCoords.map(c => c.length > 12 ? c[12] : 0);
 const ail = displayCoords.map(c => c.length > 13 ? c[13] : 0);
 const vspd = displayCoords.map(c => c.length > 14 ? c[14] : 0);
 const heading = displayCoords.map(c => c.length > 15 ? c[15] : 0);
-const rssi2 = displayCoords.map(c => c.length > 24 ? c[24] : 0);
-const rsnr = displayCoords.map(c => c.length > 25 ? c[25] : 0);
-const trss = displayCoords.map(c => c.length > 26 ? c[26] : 0);
-const tqly = displayCoords.map(c => c.length > 27 ? c[27] : 0);
-const tsnr = displayCoords.map(c => c.length > 28 ? c[28] : 0);
-const curr = displayCoords.map(c => c.length > 29 ? c[29] : 0);
-const capa = displayCoords.map(c => c.length > 30 ? c[30] : 0);
-const txbat = displayCoords.map(c => c.length > 31 ? c[31] : 0);
-const batPct = displayCoords.map(c => c.length > 32 ? c[32] : 0);
 
 new Chart(document.getElementById('navChart'), {
     type: 'line',
@@ -790,7 +861,7 @@ new Chart(document.getElementById('thrCurrChart'), {
         datasets: [{
             label: 'Thr vs Curr',
             data: displayCoords.filter(c => c.length >= 33).map(c => ({x: c[12], y: c[29]})),
-            backgroundColor: 'rgba(0, 212, 255, 0.4)',
+            backgroundColor: 'rgba(14, 165, 233, 0.4)',
             pointRadius: 2,
         }]
     },

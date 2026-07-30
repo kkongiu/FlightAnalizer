@@ -26,6 +26,37 @@
         </div>
     </div>
 
+    {% if vehicle_stats %}
+    <div style="margin-bottom:1.5rem;">
+        <h3 style="font-size:0.9rem;font-weight:600;color:var(--text);margin-bottom:0.75rem;">Fleet Overview</h3>
+        <div class="record-grid">
+            {% for vs in vehicle_stats %}
+            <a href="/flight/vehicles" class="record-card record-link" style="text-decoration:none;">
+                <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.3rem;">
+                    <div style="width:32px;height:32px;border-radius:6px;background:var(--bg);overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:1rem;">
+                        {% if vs.photo %}
+                        <img src="{{ vs.photo }}" style="width:100%;height:100%;object-fit:cover;">
+                        {% else %}
+                        ✈️
+                        {% endif %}
+                    </div>
+                    <div>
+                        <div style="font-size:0.75rem;font-weight:600;color:var(--text);">{{ vs.name }}</div>
+                        <div style="font-size:0.6rem;color:var(--text-muted);text-transform:uppercase;">{{ vs.vehicle_type }}</div>
+                    </div>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.25rem;margin-top:0.3rem;">
+                    <div><span style="font-size:0.55rem;color:var(--text-secondary);display:block;">Distance</span><span style="font-size:0.85rem;font-weight:700;color:var(--text);">{{ "%.1f"|format(vs.total_km) }} km</span></div>
+                    <div><span style="font-size:0.55rem;color:var(--text-secondary);display:block;">Flight Time</span><span style="font-size:0.85rem;font-weight:700;color:var(--text);">{{ vs.total_duration_s|fmt_duration }}</span></div>
+                    <div><span style="font-size:0.55rem;color:var(--text-secondary);display:block;">Flights</span><span style="font-size:0.85rem;font-weight:700;color:var(--text);">{{ vs.flight_count }}</span></div>
+                    <div><span style="font-size:0.55rem;color:var(--text-secondary);display:block;">Max Alt</span><span style="font-size:0.85rem;font-weight:700;color:var(--text);">{{ "%.0f"|format(vs.max_alt_m) }} m</span></div>
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
     <div class="chart-row">
         <div class="chart-container chart-box">
             <h3>Flights per Day</h3>
@@ -36,6 +67,108 @@
             <canvas id="weeklyChart"></canvas>
         </div>
     </div>
+
+    <div style="margin-bottom:1.5rem;">
+        <h3 style="font-size:0.9rem;font-weight:600;color:var(--text);margin-bottom:0.75rem;">Records</h3>
+        <div class="record-grid">
+            {% set r = stats.records.max_distance %}
+            {% if r.flight %}
+            <a href="/flight/flight/{{ r.flight }}" class="record-card record-link">
+            {% else %}
+            <div class="record-card">
+            {% endif %}
+                <div class="record-icon">📏</div>
+                <div class="record-label">Best Distance</div>
+                <div class="record-value">{{ "%.2f"|format(r.value) }} km</div>
+                <div class="record-flight">{{ r.flight or '—' }}</div>
+            {% if r.flight %}</a>{% else %}</div>{% endif %}
+
+            {% set r = stats.records.max_alt %}
+            {% if r.flight %}
+            <a href="/flight/flight/{{ r.flight }}" class="record-card record-link">
+            {% else %}
+            <div class="record-card">
+            {% endif %}
+                <div class="record-icon">⛰️</div>
+                <div class="record-label">Highest Altitude</div>
+                <div class="record-value">{{ "%.0f"|format(r.value) }} m</div>
+                <div class="record-flight">{{ r.flight or '—' }}</div>
+            {% if r.flight %}</a>{% else %}</div>{% endif %}
+
+            {% set r = stats.records.max_speed %}
+            {% if r.flight %}
+            <a href="/flight/flight/{{ r.flight }}" class="record-card record-link">
+            {% else %}
+            <div class="record-card">
+            {% endif %}
+                <div class="record-icon">🚀</div>
+                <div class="record-label">Max Speed</div>
+                <div class="record-value">{{ "%.0f"|format(r.value) }} km/h</div>
+                <div class="record-flight">{{ r.flight or '—' }}</div>
+            {% if r.flight %}</a>{% else %}</div>{% endif %}
+
+            {% set r = stats.records.max_duration %}
+            {% if r.flight %}
+            <a href="/flight/flight/{{ r.flight }}" class="record-card record-link">
+            {% else %}
+            <div class="record-card">
+            {% endif %}
+                <div class="record-icon">⏱️</div>
+                <div class="record-label">Longest Flight</div>
+                <div class="record-value">{{ r.value | fmt_duration }}</div>
+                <div class="record-flight">{{ r.flight or '—' }}</div>
+            {% if r.flight %}</a>{% else %}</div>{% endif %}
+
+            {% set r = stats.records.max_home_dist %}
+            {% if r.flight %}
+            <a href="/flight/flight/{{ r.flight }}" class="record-card record-link">
+            {% else %}
+            <div class="record-card">
+            {% endif %}
+                <div class="record-icon">📍</div>
+                <div class="record-label">Max Home Dist</div>
+                <div class="record-value">{{ "%.2f"|format(r.value) }} km</div>
+                <div class="record-flight">{{ r.flight or '—' }}</div>
+            {% if r.flight %}</a>{% else %}</div>{% endif %}
+
+            {% set r = stats.records.best_glide %}
+            {% if r.flight %}
+            <a href="/flight/flight/{{ r.flight }}" class="record-card record-link">
+            {% else %}
+            <div class="record-card">
+            {% endif %}
+                <div class="record-icon">🪶</div>
+                <div class="record-label">Best Glide Ratio</div>
+                <div class="record-value">{{ "%.1f"|format(r.value) }}</div>
+                <div class="record-flight">{{ r.flight or '—' }}</div>
+            {% if r.flight %}</a>{% else %}</div>{% endif %}
+        </div>
+    </div>
+
+    {% if flights %}
+    <div style="margin-bottom:1.5rem;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
+            <h3 style="font-size:0.9rem;font-weight:600;color:var(--text);">Recent Flights</h3>
+            <a href="/flight/flights" style="font-size:0.75rem;color:var(--accent);text-decoration:none;font-weight:500;">View all &rarr;</a>
+        </div>
+        <div class="flights-grid">
+            {% for f in flights[:3] %}
+            <a href="/flight/flight/{{ f.filename }}" class="flight-card" style="text-decoration:none;">
+                <div class="flight-card-header">
+                    <span>{{ f.date }} {{ f.start_time }}</span>
+                    <span style="color:var(--text-muted);font-weight:400;font-size:0.75rem;">{{ f.duration_s | fmt_duration }}</span>
+                </div>
+                <div class="flight-card-body">
+                    <div class="metric"><span class="metric-label">Dist</span><span class="metric-value">{{ "%.2f"|format(f.distance_km) }} km</span></div>
+                    <div class="metric"><span class="metric-label">Max Alt</span><span class="metric-value">{{ "%.0f"|format(f.max_alt_m) }} m</span></div>
+                    <div class="metric"><span class="metric-label">Speed</span><span class="metric-value">{{ "%.0f"|format(f.max_speed_kmh) }} km/h</span></div>
+                    <div class="metric"><span class="metric-label">Max RSSI</span><span class="metric-value">{{ f.max_rssi_db }} dB</span></div>
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
 
     <div class="chart-box-wide">
         <h3>Battery Health</h3>
@@ -89,8 +222,8 @@ new Chart(document.getElementById('dailyChart'), {
         datasets: [{
             label: 'Flights',
             data: daily.map(d => d.count),
-            backgroundColor: 'rgba(0, 212, 255, 0.6)',
-            borderColor: 'rgb(0, 212, 255)',
+            backgroundColor: 'rgba(14, 165, 233, 0.6)',
+            borderColor: 'rgb(14, 165, 233)',
             borderWidth: 1
         }]
     },

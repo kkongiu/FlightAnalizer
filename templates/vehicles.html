@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% block title %}Vehicles - Pocket Log Analyzer{% endblock %}
+{% block content %}
+<div class="dashboard">
+    <div class="header-bar">
+        <h2>Vehicles</h2>
+        <div class="header-actions">
+            <button id="addVehicleBtn" class="btn-primary">+ Add Vehicle</button>
+            <button id="applyDefaultBtn" class="btn-primary" style="background:var(--bg);color:var(--text);box-shadow:none;border:1px solid rgba(128,128,128,0.2);">Apply Default to All</button>
+        </div>
+    </div>
+
+    {% if not vehicles %}
+    <div class="empty-state">
+        <div class="empty-icon">✈️</div>
+        <p>No vehicles yet. Add your drone or aircraft to track its stats.</p>
+    </div>
+    {% endif %}
+
+    <div class="flights-grid" id="vehicleGrid">
+        {% for v in vehicles %}
+        <div class="flight-card vehicle-card" data-id="{{ v.id }}" data-name="{{ v.name }}" data-type="{{ v.vehicle_type }}" data-default="{{ v.is_default|lower }}">
+            <div class="flight-card-header">
+                <span>{{ v.name }}</span>
+                <span style="font-size:0.7rem;padding:0.15rem 0.4rem;border-radius:4px;background:rgba(14,165,233,0.1);color:var(--accent);text-transform:uppercase;">{{ v.vehicle_type }}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem;">
+                <div style="width:56px;height:56px;border-radius:8px;background:var(--bg);overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:1.8rem;" class="vehicle-photo-preview" id="photo-preview-{{ v.id }}">
+                    {% if v.photo %}
+                    <img src="{{ v.photo }}" style="width:100%;height:100%;object-fit:cover;">
+                    {% else %}
+                    ✈️
+                    {% endif %}
+                </div>
+                <div style="flex:1;min-width:0;">
+                    {% set vs = stats|selectattr("id","equalto",v.id)|first %}
+                    {% if vs %}
+                    <div style="font-size:0.8rem;font-weight:600;">{{ "%.2f"|format(vs.total_km) }} km</div>
+                    <div style="font-size:0.7rem;color:var(--text-secondary);">{{ vs.flight_count }} flights · {{ vs.total_duration_s|fmt_duration }}</div>
+                    {% else %}
+                    <div style="font-size:0.7rem;color:var(--text-muted);">No flights yet</div>
+                    {% endif %}
+                </div>
+            </div>
+            <div style="display:flex;gap:0.4rem;">
+                <button class="btn-primary btn-sm edit-vehicle-btn" style="flex:1;">Edit</button>
+                <button class="btn-danger btn-sm delete-vehicle-btn" style="flex:1;">Delete</button>
+                <input type="file" accept="image/jpeg,image/png,image/webp" class="photo-input" style="display:none" data-id="{{ v.id }}">
+                <button class="btn-primary btn-sm photo-btn" data-id="{{ v.id }}" title="Upload photo">📷</button>
+            </div>
+            {% if v.is_default %}
+            <div style="margin-top:0.4rem;">
+                <span style="font-size:0.6rem;padding:0.1rem 0.4rem;border-radius:3px;background:rgba(34,197,94,0.1);color:#22c55e;font-weight:600;">DEFAULT</span>
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div id="vehicleModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1000;display:none;align-items:center;justify-content:center;backdrop-filter:blur(4px);">
+    <div style="background:var(--surface);border-radius:var(--radius);padding:1.5rem;width:400px;max-width:90vw;box-shadow:var(--shadow-lg);">
+        <h3 style="font-size:1rem;font-weight:600;margin-bottom:1rem;color:var(--text);" id="modalTitle">Add Vehicle</h3>
+        <input id="vehicleName" placeholder="Vehicle name" style="width:100%;padding:0.6rem 0.8rem;border:1px solid rgba(128,128,128,0.2);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:0.9rem;margin-bottom:0.75rem;">
+        <select id="vehicleType" style="width:100%;padding:0.6rem 0.8rem;border:1px solid rgba(128,128,128,0.2);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:0.9rem;margin-bottom:0.75rem;">
+            <option value="drone">Drone</option>
+            <option value="fixed-wing">Fixed Wing</option>
+            <option value="heli">Helicopter</option>
+            <option value="glider">Glider</option>
+            <option value="other">Other</option>
+        </select>
+        <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:var(--text);margin-bottom:1rem;cursor:pointer;">
+            <input type="checkbox" id="vehicleDefault"> Set as default vehicle
+        </label>
+        <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
+            <button id="modalCancelBtn" class="btn-primary" style="background:var(--bg);color:var(--text);box-shadow:none;">Cancel</button>
+            <button id="modalSaveBtn" class="btn-primary">Save</button>
+        </div>
+        <input type="hidden" id="vehicleEditId" value="">
+    </div>
+</div>
+
+<script>
+const modal = document.getElementById('vehicleModal');
+const modalTitle = document.getElementById('modalTitle');
+const nameInput = document.getElementById('vehicleName');
+const typeInput = document.getElementById('vehicleType');
+const defaultInput = document.getElementById('vehicleDefault');
+const editIdInput = document.getElementById('vehicleEditId');
+const saveBtn = document.getElementById('modalSaveBtn');
+const cancelBtn = document.getElementById('modalCancelBtn');
+
+function showModal(editData) {
+    if (editData) {
+        modalTitle.textContent = 'Edit Vehicle';
+        nameInput.value = editData.name;
+        typeInput.value = editData.type;
+        defaultInput.checked = editData.isDefault;
+        editIdInput.value = editData.id;
+    } else {
+        modalTitle.textContent = 'Add Vehicle';
+        nameInput.value = '';
+        typeInput.value = 'drone';
+        defaultInput.checked = false;
+        editIdInput.value = '';
+    }
+    modal.style.display = 'flex';
+}
+
+document.getElementById('addVehicleBtn').addEventListener('click', () => showModal(null));
+
+cancelBtn.addEventListener('click', () => { modal.style.display = 'none'; });
+modal.addEventListener('click', (e) => { if (e.target === modal) modal.style.display = 'none'; });
+
+saveBtn.addEventListener('click', async () => {
+    const name = nameInput.value.trim();
+    if (!name) return;
+    const vtype = typeInput.value;
+    const isDefault = defaultInput.checked;
+    const editId = editIdInput.value;
+    const url = editId ? `/flight/api/vehicles/${editId}` : '/flight/api/vehicles';
+    const method = editId ? 'PUT' : 'POST';
+    try {
+        const res = await fetch(url, { method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name, vehicle_type: vtype, is_default: isDefault}) });
+        if (res.ok) {
+            if (isDefault) {
+                await fetch('/flight/api/vehicles/apply-default', { method: 'POST' });
+            }
+            window.location.reload();
+        } else alert('Error saving vehicle');
+    } catch(e) { alert('Error: ' + e.message); }
+});
+
+document.querySelectorAll('.edit-vehicle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const card = btn.closest('.vehicle-card');
+        showModal({id: card.dataset.id, name: card.dataset.name, type: card.dataset.type, isDefault: card.dataset.default === 'true'});
+    });
+});
+
+document.querySelectorAll('.delete-vehicle-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        const card = btn.closest('.vehicle-card');
+        if (!confirm('Delete "' + card.dataset.name + '" and unassign its flights?')) return;
+        try {
+            const res = await fetch(`/flight/api/vehicles/${card.dataset.id}`, { method: 'DELETE' });
+            if (res.ok) window.location.reload();
+            else alert('Error deleting');
+        } catch(e) { alert('Error: ' + e.message); }
+    });
+});
+
+document.querySelectorAll('.photo-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const input = btn.parentElement.querySelector('.photo-input');
+        input.click();
+    });
+});
+
+document.getElementById('applyDefaultBtn').addEventListener('click', async () => {
+    if (!confirm('Assign the default vehicle to all flights without a vehicle?')) return;
+    try {
+        const res = await fetch('/flight/api/vehicles/apply-default', { method: 'POST' });
+        const data = await res.json();
+        if (res.ok) {
+            alert('Assigned "' + data.vehicle + '" to ' + data.updated + ' flight(s)');
+            window.location.reload();
+        } else {
+            alert(data.error || 'Error');
+        }
+    } catch(e) { alert('Error: ' + e.message); }
+});
+
+document.querySelectorAll('.photo-input').forEach(input => {
+    input.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const vid = input.dataset.id;
+        const formData = new FormData();
+        formData.append('file', file);
+        try {
+            const res = await fetch(`/flight/api/vehicles/${vid}/photo`, { method: 'POST', body: formData });
+            if (res.ok) window.location.reload();
+            else alert('Error uploading photo');
+        } catch(e) { alert('Error: ' + e.message); }
+    });
+});
+</script>
+{% endblock %}

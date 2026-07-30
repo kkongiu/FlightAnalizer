@@ -1,7 +1,7 @@
 import json
 import sqlite3
 from pathlib import Path
-from models import FlightSummary
+from models import FlightSummary, Vehicle
 
 DATA_DIR = Path(__file__).parent / "data"
 DATA_DIR.mkdir(exist_ok=True)
@@ -11,6 +11,7 @@ DB_PATH = DATA_DIR / "flights.db"
 def _get_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
 
@@ -44,10 +45,35 @@ def init_db():
                 txbat_v REAL,
                 flight_modes TEXT,
                 sats_max INTEGER,
+                home_distance_km REAL DEFAULT 0,
+                glide_ratio REAL DEFAULT 0,
+                efficiency_km_per_mah REAL DEFAULT 0,
+                vibration_score REAL DEFAULT 0,
+                events TEXT DEFAULT '[]',
                 coordinates TEXT,
-                notes TEXT DEFAULT ''
+                notes TEXT DEFAULT '',
+                vehicle_id INTEGER DEFAULT NULL
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vehicles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                vehicle_type TEXT NOT NULL DEFAULT 'drone',
+                photo TEXT DEFAULT '',
+                is_default INTEGER DEFAULT 0
+            )
+        """)
+        # Migrations
+        for col, typ in [('home_distance_km', 'REAL DEFAULT 0'), ('glide_ratio', 'REAL DEFAULT 0'), ('efficiency_km_per_mah', 'REAL DEFAULT 0'), ('vibration_score', 'REAL DEFAULT 0'), ('events', "TEXT DEFAULT '[]'")]:
+            try:
+                conn.execute(f"ALTER TABLE flights ADD COLUMN {col} {typ}")
+            except Exception:
+                pass
+        try:
+            conn.execute("ALTER TABLE flights ADD COLUMN vehicle_id INTEGER DEFAULT NULL")
+        except Exception:
+            pass
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict:
@@ -60,6 +86,10 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
         d["coordinates"] = json.loads(d["coordinates"])
     else:
         d["coordinates"] = []
+    if d.get("events"):
+        d["events"] = json.loads(d["events"])
+    else:
+        d["events"] = []
     return d
 
 
@@ -72,8 +102,10 @@ def save_flight(summary: FlightSummary):
              max_rssi_db, min_rssi_db, avg_rssi_db, min_rqly, avg_rqly,
              battery_start_v, battery_end_v, battery_min_v,
              battery_start_pct, battery_end_pct, battery_consumed_mah,
-             max_current_a, txbat_v, flight_modes, sats_max, coordinates)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             max_current_a, txbat_v, flight_modes, sats_max,
+             home_distance_km, glide_ratio, efficiency_km_per_mah, vibration_score, events,
+             coordinates)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             summary.filename, summary.date, summary.start_time, summary.duration_s, summary.distance_km,
             summary.max_alt_m, summary.min_alt_m, summary.avg_alt_m, summary.max_speed_kmh, summary.avg_speed_kmh, summary.max_vspd_ms,
@@ -81,6 +113,8 @@ def save_flight(summary: FlightSummary):
             summary.battery_start_v, summary.battery_end_v, summary.battery_min_v,
             summary.battery_start_pct, summary.battery_end_pct, summary.battery_consumed_mah,
             summary.max_current_a, summary.txbat_v, json.dumps(summary.flight_modes), summary.sats_max,
+            summary.home_distance_km, summary.glide_ratio, summary.efficiency_km_per_mah, summary.vibration_score,
+            json.dumps(summary.events),
             json.dumps(summary.coordinates),
         ))
 
@@ -137,6 +171,91 @@ def update_flight_track(filename: str, coordinates: list, stats: dict):
             stats["avg_speed_kmh"],
             filename,
         ))
+
+
+# --- Vehicle CRUD ---
+
+def get_vehicles() -> list[Vehicle]:
+    with _get_conn() as conn:
+        rows = conn.execute("SELECT * FROM vehicles ORDER BY is_default DESC, name ASC").fetchall()
+    return [Vehicle(**dict(r)) for r in rows]
+
+
+def get_vehicle(vehicle_id: int) -> Vehicle | None:
+    with _get_conn() as conn:
+        row = conn.execute("SELECT * FROM vehicles WHERE id = ?", (vehicle_id,)).fetchone()
+    return Vehicle(**dict(row)) if row else None
+
+
+def get_default_vehicle() -> Vehicle | None:
+    with _get_conn() as conn:
+        row = conn.execute("SELECT * FROM vehicles WHERE is_default = 1 LIMIT 1").fetchone()
+    return Vehicle(**dict(row)) if row else None
+
+
+def create_vehicle(name: str, vehicle_type: str = "drone", is_default: bool = False) -> Vehicle:
+    with _get_conn() as conn:
+        if is_default:
+            conn.execute("UPDATE vehicles SET is_default = 0")
+        cur = conn.execute(
+            "INSERT INTO vehicles (name, vehicle_type, is_default) VALUES (?, ?, ?)",
+            (name, vehicle_type, 1 if is_default else 0),
+        )
+        return get_vehicle(cur.lastrowid)
+
+
+def update_vehicle(vehicle_id: int, name: str = None, vehicle_type: str = None, is_default: bool = None) -> Vehicle | None:
+    with _get_conn() as conn:
+        existing = conn.execute("SELECT * FROM vehicles WHERE id = ?", (vehicle_id,)).fetchone()
+        if not existing:
+            return None
+        new_name = name if name is not None else existing["name"]
+        new_type = vehicle_type if vehicle_type is not None else existing["vehicle_type"]
+        new_default = is_default if is_default is not None else bool(existing["is_default"])
+        if new_default:
+            conn.execute("UPDATE vehicles SET is_default = 0")
+        conn.execute(
+            "UPDATE vehicles SET name = ?, vehicle_type = ?, is_default = ? WHERE id = ?",
+            (new_name, new_type, 1 if new_default else 0, vehicle_id),
+        )
+        return get_vehicle(vehicle_id)
+
+
+def delete_vehicle(vehicle_id: int) -> bool:
+    with _get_conn() as conn:
+        cur = conn.execute("DELETE FROM vehicles WHERE id = ?", (vehicle_id,))
+        if cur.rowcount:
+            conn.execute("UPDATE flights SET vehicle_id = NULL WHERE vehicle_id = ?", (vehicle_id,))
+        return cur.rowcount > 0
+
+
+def set_vehicle_photo(vehicle_id: int, photo_path: str):
+    with _get_conn() as conn:
+        conn.execute("UPDATE vehicles SET photo = ? WHERE id = ?", (photo_path, vehicle_id))
+
+
+def get_vehicle_stats() -> list[dict]:
+    with _get_conn() as conn:
+        rows = conn.execute("""
+            SELECT
+                v.id, v.name, v.vehicle_type, v.photo, v.is_default,
+                COUNT(f.filename) AS flight_count,
+                COALESCE(SUM(f.distance_km), 0) AS total_km,
+                COALESCE(SUM(f.duration_s), 0) AS total_duration_s,
+                COALESCE(SUM(f.home_distance_km), 0) AS total_home_km,
+                COALESCE(MAX(f.max_alt_m), 0) AS max_alt_m,
+                COALESCE(MAX(f.max_speed_kmh), 0) AS max_speed_kmh
+            FROM vehicles v
+            LEFT JOIN flights f ON f.vehicle_id = v.id
+            GROUP BY v.id
+            ORDER BY v.is_default DESC, v.name ASC
+        """).fetchall()
+    return [dict(r) for r in rows]
+
+
+def assign_vehicle_to_flight(filename: str, vehicle_id: int | None):
+    with _get_conn() as conn:
+        conn.execute("UPDATE flights SET vehicle_id = ? WHERE filename = ?", (vehicle_id, filename))
 
 
 init_db()

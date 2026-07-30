@@ -13,7 +13,11 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from parser import parse_log
 from analyzer import analyze
-from database import save_flight, get_all_flights, get_flight, delete_flight, rename_flight, update_notes, update_flight_track
+from database import (save_flight, get_all_flights, get_flight, delete_flight,
+                      rename_flight, update_notes, update_flight_track,
+                      get_vehicles, get_vehicle, get_default_vehicle,
+                      create_vehicle, update_vehicle, delete_vehicle,
+                      set_vehicle_photo, get_vehicle_stats, assign_vehicle_to_flight)
 
 USER = os.environ.get("POCKET_USER")
 PASS = os.environ.get("POCKET_PASS")
@@ -111,8 +115,19 @@ def get_stats():
     weekly = defaultdict(lambda: {"count": 0, "distance": 0, "duration": 0})
     monthly = defaultdict(lambda: {"count": 0, "distance": 0, "duration": 0})
 
+    records = {
+        "max_distance": {"value": 0, "flight": ""},
+        "max_alt": {"value": 0, "flight": ""},
+        "max_speed": {"value": 0, "flight": ""},
+        "max_duration": {"value": 0, "flight": ""},
+        "max_home_dist": {"value": 0, "flight": ""},
+        "best_glide": {"value": 0, "flight": ""},
+        "max_vspd": {"value": 0, "flight": ""},
+    }
+
     for f in flights:
         date_str = f.get("date", "")
+        fn = f.get("filename", "")
         if not date_str:
             continue
         try:
@@ -136,10 +151,26 @@ def get_stats():
         monthly[month_key]["distance"] += dist
         monthly[month_key]["duration"] += dur
 
+        if f.get("distance_km", 0) > records["max_distance"]["value"]:
+            records["max_distance"] = {"value": f["distance_km"], "flight": fn}
+        if f.get("max_alt_m", 0) > records["max_alt"]["value"]:
+            records["max_alt"] = {"value": f["max_alt_m"], "flight": fn}
+        if f.get("max_speed_kmh", 0) > records["max_speed"]["value"]:
+            records["max_speed"] = {"value": f["max_speed_kmh"], "flight": fn}
+        if f.get("duration_s", 0) > records["max_duration"]["value"]:
+            records["max_duration"] = {"value": f["duration_s"], "flight": fn}
+        if f.get("home_distance_km", 0) > records["max_home_dist"]["value"]:
+            records["max_home_dist"] = {"value": f["home_distance_km"], "flight": fn}
+        if f.get("glide_ratio", 0) > records["best_glide"]["value"]:
+            records["best_glide"] = {"value": f["glide_ratio"], "flight": fn}
+        if f.get("max_vspd_ms", 0) > records["max_vspd"]["value"]:
+            records["max_vspd"] = {"value": f["max_vspd_ms"], "flight": fn}
+
     return {
         "total_flights": total_flights,
         "total_distance_km": round(total_dist, 2),
         "total_duration_s": total_dur,
+        "records": records,
         "daily": [{"period": k, **v} for k, v in sorted(daily.items())],
         "weekly": [{"period": k, **v} for k, v in sorted(weekly.items())],
         "monthly": [{"period": k, **v} for k, v in sorted(monthly.items())],
@@ -177,7 +208,10 @@ async def dashboard(request: Request):
         return redirect
     flights = get_all_flights()
     stats = get_stats()
-    return templates.TemplateResponse(request, "dashboard.html", {"flights": flights, "stats": stats})
+    vehicle_stats = get_vehicle_stats()
+    return templates.TemplateResponse(request, "dashboard.html", {
+        "flights": flights, "stats": stats, "vehicle_stats": vehicle_stats
+    })
 
 
 @app.get("/flights", response_class=HTMLResponse)
@@ -205,8 +239,9 @@ async def flight_detail(request: Request, filename: str):
             break
     prev_flight = flights[idx + 1]["filename"] if idx is not None and idx + 1 < len(flights) else None
     next_flight = flights[idx - 1]["filename"] if idx is not None and idx - 1 >= 0 else None
+    vehicles = get_vehicles()
     return templates.TemplateResponse(request, "flight.html", {
-        "flight": flight, "prev": prev_flight, "next": next_flight
+        "flight": flight, "prev": prev_flight, "next": next_flight, "vehicles": vehicles
     })
 
 
@@ -225,6 +260,9 @@ async def scan_logs(request: Request):
             if not points:
                 continue
             summary = analyze(key, points)
+            default_v = get_default_vehicle()
+            if default_v:
+                summary.vehicle_id = default_v.id
             save_flight(summary)
             imported.append(key)
         except Exception:
@@ -252,6 +290,9 @@ async def upload_log(request: Request, file: UploadFile = File(...)):
             dest.unlink()
             return JSONResponse({"error": "No valid telemetry data found"}, status_code=400)
         summary = analyze(safe_name, points)
+        default_v = get_default_vehicle()
+        if default_v:
+            summary.vehicle_id = default_v.id
         save_flight(summary)
         return {"imported": safe_name}
     except Exception:
@@ -438,6 +479,17 @@ async def api_delete(request: Request, filename: str):
     return {"deleted": filename}
 
 
+@app.put("/api/flights/{filename:path}/vehicle")
+async def api_assign_vehicle(filename: str, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    body = await request.json()
+    vehicle_id = body.get("vehicle_id")
+    assign_vehicle_to_flight(filename, vehicle_id)
+    return {"ok": True}
+
+
 @app.put("/api/flights/{filename:path}")
 async def api_rename(request: Request, filename: str):
     denied = require_api_auth(request)
@@ -555,6 +607,124 @@ async def api_rescan_nav(filename: str, request: Request):
         "avg_speed_kmh": flight.get("avg_speed_kmh", 0),
     })
     return {"ok": True, "matched": matched, "total": len(updated)}
+
+
+@app.get("/vehicles", response_class=HTMLResponse)
+async def vehicles_page(request: Request):
+    redirect = require_auth(request)
+    if redirect:
+        return redirect
+    vehicles = get_vehicles()
+    stats = get_vehicle_stats()
+    return templates.TemplateResponse(request, "vehicles.html", {
+        "vehicles": vehicles, "stats": stats
+    })
+
+
+@app.get("/api/vehicles")
+async def api_vehicles(request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    return [{"id": v.id, "name": v.name, "vehicle_type": v.vehicle_type,
+             "photo": v.photo, "is_default": v.is_default} for v in get_vehicles()]
+
+
+@app.post("/api/vehicles")
+async def api_create_vehicle(request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    body = await request.json()
+    name = body.get("name", "").strip()
+    if not name:
+        return JSONResponse({"error": "name is required"}, status_code=400)
+    vtype = body.get("vehicle_type", "drone")
+    is_default = body.get("is_default", False)
+    v = create_vehicle(name, vtype, is_default)
+    return {"id": v.id, "name": v.name, "vehicle_type": v.vehicle_type, "is_default": v.is_default}
+
+
+@app.put("/api/vehicles/{vehicle_id}")
+async def api_update_vehicle(vehicle_id: int, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    body = await request.json()
+    v = update_vehicle(
+        vehicle_id,
+        name=body.get("name"),
+        vehicle_type=body.get("vehicle_type"),
+        is_default=body.get("is_default"),
+    )
+    if not v:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return {"id": v.id, "name": v.name, "vehicle_type": v.vehicle_type, "is_default": v.is_default}
+
+
+@app.delete("/api/vehicles/{vehicle_id}")
+async def api_delete_vehicle(vehicle_id: int, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    if delete_vehicle(vehicle_id):
+        return {"deleted": vehicle_id}
+    return JSONResponse({"error": "not found"}, status_code=404)
+
+
+@app.post("/api/vehicles/{vehicle_id}/photo")
+async def api_vehicle_photo(vehicle_id: int, request: Request, file: UploadFile = File(...)):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    v = get_vehicle(vehicle_id)
+    if not v:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    if not file.filename or not file.filename.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+        return JSONResponse({"error": "Only image files (jpg, png, webp) are supported"}, status_code=400)
+    photo_dir = Path(__file__).parent / "data" / "vehicle_photos"
+    photo_dir.mkdir(parents=True, exist_ok=True)
+    ext = Path(file.filename).suffix
+    photo_name = f"v{vehicle_id}{ext}"
+    photo_path = photo_dir / photo_name
+    contents = await file.read()
+    if len(contents) > 5 * 1024 * 1024:
+        return JSONResponse({"error": "File too large (max 5 MB)"}, status_code=400)
+    photo_path.write_bytes(contents)
+    set_vehicle_photo(vehicle_id, f"/flight/api/vehicles/{vehicle_id}/photo/img")
+    return {"photo": f"/flight/api/vehicles/{vehicle_id}/photo/img"}
+
+
+@app.get("/api/vehicles/{vehicle_id}/photo/img")
+async def api_vehicle_photo_img(vehicle_id: int, request: Request):
+    v = get_vehicle(vehicle_id)
+    if not v or not v.photo:
+        return HTMLResponse("", status_code=404)
+    photo_dir = Path(__file__).parent / "data" / "vehicle_photos"
+    ext_candidates = [".jpg", ".jpeg", ".png", ".webp"]
+    for ext in ext_candidates:
+        p = photo_dir / f"v{vehicle_id}{ext}"
+        if p.exists():
+            from fastapi.responses import FileResponse
+            return FileResponse(str(p))
+    return HTMLResponse("", status_code=404)
+
+
+@app.post("/api/vehicles/apply-default")
+async def api_apply_default_vehicle(request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    default_v = get_default_vehicle()
+    if not default_v:
+        return JSONResponse({"error": "No default vehicle set"}, status_code=400)
+    flights = get_all_flights()
+    updated = 0
+    for f in flights:
+        if f.get("vehicle_id") is None:
+            assign_vehicle_to_flight(f["filename"], default_v.id)
+            updated += 1
+    return {"updated": updated, "vehicle": default_v.name}
 
 
 @app.get("/api/battery-health")

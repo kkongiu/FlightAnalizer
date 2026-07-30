@@ -1,4 +1,5 @@
 import math
+import statistics
 from models import TelemetryPoint, FlightSummary
 
 
@@ -49,6 +50,56 @@ def analyze(filename: str, points: list[TelemetryPoint]) -> FlightSummary:
         m = p.flight_mode
         modes[m] = modes.get(m, 0) + 1
 
+    # Home point = first GPS position
+    home_lat, home_lon = points[0].lat, points[0].lon
+
+    # Max distance from home
+    home_dists = [haversine_km(home_lat, home_lon, p.lat, p.lon) for p in points if p.lat != 0 or p.lon != 0]
+    home_distance_km = round(max(home_dists), 3) if home_dists else 0
+
+    # Glide ratio: horizontal distance / altitude lost (only when descending)
+    alt_loss = max(alts) - min(alts)
+    glide_ratio = round(total_dist / alt_loss, 2) if alt_loss > 0 else 0
+
+    # Efficiency: km per 1000 mAh
+    consumed_mah = (capas[-1] - capas[0]) if capas else 0
+    efficiency_km_per_mah = round(total_dist / consumed_mah * 1000, 2) if consumed_mah > 0 else 0
+
+    # Vibration score: stddev of pitch and roll over a sliding window
+    if len(points) >= 10:
+        pitch_vals = [p.pitch for p in points]
+        roll_vals = [p.roll for p in points]
+        window = max(10, len(points) // 20)
+        pitch_var = sum((pitch_vals[i] - sum(pitch_vals[i:i+window])/window)**2 for i in range(len(points)-window)) / max(1, len(points)-window)
+        roll_var = sum((roll_vals[i] - sum(roll_vals[i:i+window])/window)**2 for i in range(len(points)-window)) / max(1, len(points)-window)
+        vibration_score = round(math.sqrt(pitch_var + roll_var), 4)
+    else:
+        vibration_score = 0
+
+    # Event detection
+    events = []
+    was_on_ground = True
+    prev_mode = points[0].flight_mode
+    alt_threshold = 3.0
+
+    for i, p in enumerate(points):
+        # Takeoff: ground -> airborne
+        if was_on_ground and p.alt > alt_threshold and p.gspd > 2:
+            events.append({"type": "takeoff", "ts": p.timestamp, "i": i})
+            was_on_ground = False
+        # Landing: airborne -> ground
+        if not was_on_ground and p.alt < 1.5 and p.gspd < 1:
+            events.append({"type": "landing", "ts": p.timestamp, "i": i})
+            was_on_ground = True
+        # Signal loss: low RSSI + !ERR
+        if p.rssi_1 < -90 and p.rssi_1 != 0 and p.flight_mode == "!ERR":
+            if not events or events[-1]["type"] != "signal_loss" or p.timestamp - events[-1]["ts"] > 3:
+                events.append({"type": "signal_loss", "ts": p.timestamp, "i": i})
+        # Flight mode change
+        if p.flight_mode != prev_mode:
+            events.append({"type": "mode_change", "ts": p.timestamp, "i": i, "mode": p.flight_mode})
+            prev_mode = p.flight_mode
+
     coords = [[p.lat, p.lon, p.alt, p.gspd, p.timestamp, p.rssi_1, p.rxbt,
                p.pitch, p.roll, p.yaw, p.rud, p.ele, p.thr, p.ail,
                p.vspd, p.heading,
@@ -77,10 +128,15 @@ def analyze(filename: str, points: list[TelemetryPoint]) -> FlightSummary:
         battery_min_v=round(min(rxbt), 2) if rxbt else 0,
         battery_start_pct=round(bat_pcts[0], 1) if bat_pcts else 0,
         battery_end_pct=round(bat_pcts[-1], 1) if bat_pcts else 0,
-        battery_consumed_mah=round((capas[-1] - capas[0]) if capas else 0, 0),
+        battery_consumed_mah=round(consumed_mah, 0),
         max_current_a=round(max(currs), 1) if currs else 0,
         txbat_v=round(points[0].txbat, 1),
         flight_modes=modes,
         sats_max=max(sats_list) if sats_list else 0,
+        home_distance_km=home_distance_km,
+        glide_ratio=glide_ratio,
+        efficiency_km_per_mah=efficiency_km_per_mah,
+        vibration_score=vibration_score,
+        events=events,
         coordinates=coords,
     )
