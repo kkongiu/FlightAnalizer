@@ -298,6 +298,47 @@ def set_flight_tags(filename: str, tags: list[str]):
         conn.execute("UPDATE flights SET tags = ? WHERE filename = ?", (json.dumps(tags), filename))
 
 
+def _haversine_km(lat1, lon1, lat2, lon2):
+    import math
+    R = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def recalculate_home_distances():
+    with _get_conn() as conn:
+        rows = conn.execute("SELECT filename, coordinates FROM flights").fetchall()
+    updated = 0
+    for row in rows:
+        fn, coords_json = row
+        coords = json.loads(coords_json) if coords_json else []
+        if len(coords) < 2:
+            continue
+        home_lat, home_lon = 0.0, 0.0
+        for c in coords:
+            lat, lon = c[0], c[1]
+            sats = c[24] if len(c) > 24 else 0
+            if abs(lat) > 0.001 and abs(lon) > 0.001 and sats >= 5:
+                home_lat, home_lon = lat, lon
+                break
+        if home_lat == 0.0 and home_lon == 0.0:
+            for c in coords:
+                lat, lon = c[0], c[1]
+                if abs(lat) > 0.001 and abs(lon) > 0.001:
+                    home_lat, home_lon = lat, lon
+                    break
+        if home_lat == 0.0 and home_lon == 0.0:
+            continue
+        home_dists = [_haversine_km(home_lat, home_lon, c[0], c[1]) for c in coords if abs(c[0]) > 0.001 or abs(c[1]) > 0.001]
+        new_home_dist = round(max(home_dists), 3) if home_dists else 0
+        with _get_conn() as conn:
+            conn.execute("UPDATE flights SET home_distance_km = ? WHERE filename = ?", (new_home_dist, fn))
+        updated += 1
+    return updated
+
+
 def get_all_tags() -> list[str]:
     with _get_conn() as conn:
         rows = conn.execute("SELECT tags FROM flights").fetchall()
@@ -309,3 +350,4 @@ def get_all_tags() -> list[str]:
 
 
 init_db()
+recalculate_home_distances()

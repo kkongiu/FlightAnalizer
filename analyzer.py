@@ -50,11 +50,20 @@ def analyze(filename: str, points: list[TelemetryPoint]) -> FlightSummary:
         m = p.flight_mode
         modes[m] = modes.get(m, 0) + 1
 
-    # Home point = first GPS position
-    home_lat, home_lon = points[0].lat, points[0].lon
+    # Home point = first valid GPS position (non-zero, ideally sats > 4)
+    home_lat, home_lon = 0.0, 0.0
+    for p in points:
+        if abs(p.lat) > 0.001 and abs(p.lon) > 0.001 and p.sats >= 5:
+            home_lat, home_lon = p.lat, p.lon
+            break
+    if home_lat == 0.0 and home_lon == 0.0:
+        for p in points:
+            if abs(p.lat) > 0.001 and abs(p.lon) > 0.001:
+                home_lat, home_lon = p.lat, p.lon
+                break
 
     # Max distance from home
-    home_dists = [haversine_km(home_lat, home_lon, p.lat, p.lon) for p in points if p.lat != 0 or p.lon != 0]
+    home_dists = [haversine_km(home_lat, home_lon, p.lat, p.lon) for p in points if abs(p.lat) > 0.001 or abs(p.lon) > 0.001]
     home_distance_km = round(max(home_dists), 3) if home_dists else 0
 
     # Glide ratio: horizontal distance / altitude lost (only when descending)
