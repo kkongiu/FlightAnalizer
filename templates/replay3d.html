@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>3D Replay</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body, #canvasWrap { width:100%; height:100%; overflow:hidden; background:#000; font-family:Inter,system-ui,sans-serif; }
+#canvasWrap { position:relative; }
+#replayCanvas { display:block; width:100%; height:100%; }
+
+.loading {
+    position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:1rem; background:#0f172a; z-index:100; color:#fff; font-size:1rem;
+    transition:opacity 0.4s; font-family:Inter,system-ui,sans-serif;
+}
+.loading.hidden { opacity:0; pointer-events:none; }
+.spinner { width:36px; height:36px; border:3px solid rgba(255,255,255,0.08); border-top-color:#0ea5e9; border-radius:50%; animation:spin .7s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+.loading .sub { color:#888; font-size:0.8rem; }
+
+.top-left {
+    position:absolute; top:1rem; left:1rem; z-index:10;
+    background:rgba(0,0,0,0.55); backdrop-filter:blur(6px); border-radius:8px;
+    padding:0.5rem 0.8rem; color:#fff; font-size:0.7rem; display:flex; flex-direction:column; gap:0.15rem; min-width:130px;
+}
+.top-left .l { color:#888; }
+.top-left .v { color:#eee; }
+
+.view-btns {
+    position:absolute; top:1rem; right:1rem; display:flex; gap:0.3rem; z-index:10;
+}
+.view-btns button {
+    background:rgba(0,0,0,0.55); backdrop-filter:blur(6px); color:#fff;
+    border:1px solid rgba(255,255,255,0.12); border-radius:6px;
+    padding:0.3rem 0.6rem; font-size:0.7rem; cursor:pointer; transition:.15s;
+}
+.view-btns button:hover { background:rgba(14,165,233,0.35); }
+.view-btns button.active { background:#0ea5e9; border-color:#0ea5e9; }
+.view-btns button.close-btn { background:rgba(239,68,68,0.3); border-color:rgba(239,68,68,0.3); }
+.view-btns button.close-btn:hover { background:rgba(239,68,68,0.6); }
+
+.bar {
+    position:absolute; bottom:1.2rem; left:50%; transform:translateX(-50%);
+    display:flex; align-items:center; gap:0.5rem; padding:0.5rem 1rem;
+    background:rgba(0,0,0,0.65); backdrop-filter:blur(8px); border-radius:10px; z-index:10;
+}
+.bar button {
+    background:rgba(255,255,255,0.08); color:#fff; border:1px solid rgba(255,255,255,0.12);
+    border-radius:6px; padding:0.3rem 0.7rem; font-size:0.75rem; cursor:pointer; transition:.15s;
+}
+.bar button:hover { background:rgba(255,255,255,0.18); }
+.bar input[type="range"] { width:200px; height:4px; accent-color:#0ea5e9; cursor:pointer; }
+.bar .tm { color:#aaa; font-size:0.7rem; min-width:3.5rem; text-align:center; }
+.bar select { background:rgba(255,255,255,0.08); color:#fff; border:1px solid rgba(255,255,255,0.12); border-radius:4px; padding:0.2rem; font-size:0.65rem; }
+@media (max-width:600px) {
+    .bar { flex-wrap:wrap; justify-content:center; width:96%; bottom:0.4rem; padding:0.4rem; gap:0.35rem; }
+    .bar input[type="range"] { width:130px; }
+    .top-left { font-size:0.65rem; padding:0.35rem 0.6rem; }
+    .view-btns { top:0.5rem; right:0.5rem; }
+}
+</style>
+</head>
+<body>
+<div class="loading" id="loadingOverlay">
+    <div class="spinner"></div>
+    <span>Loading terrain...</span>
+    <span class="sub">Fetching elevation data for {{ filename }}</span>
+</div>
+
+<div id="canvasWrap">
+    <div class="top-left">
+        <div><span class="l">Alt:</span> <span class="v" id="infoAlt">0</span> <span class="l">m</span></div>
+        <div><span class="l">Speed:</span> <span class="v" id="infoSpeed">0</span> <span class="l">km/h</span></div>
+        <div><span class="l">Dist:</span> <span class="v" id="infoDist">0</span> <span class="l">km</span></div>
+        <div><span class="l">Mode:</span> <span class="v" id="infoMode">—</span></div>
+    </div>
+
+    <div class="view-btns">
+        <button id="vGround" class="active">🎯 Ground</button>
+        <button id="vFPV">👁 FPV</button>
+        <button id="vFree">🖱 Free</button>
+        <button class="close-btn" onclick="window.close()">✕ Close</button>
+    </div>
+
+    <canvas id="replayCanvas"></canvas>
+
+    <div class="bar">
+        <button id="playBtn">▶ Play</button>
+        <input type="range" id="timeline" min="0" max="1000" value="0">
+        <span class="tm" id="timeDisplay">0:00</span>
+        <select id="speedSelect">
+            <option value="0.5">0.5x</option>
+            <option value="1" selected>1x</option>
+            <option value="2">2x</option>
+            <option value="5">5x</option>
+            <option value="10">10x</option>
+        </select>
+    </div>
+</div>
+
+<script>
+function showError(msg, sub) {
+    var el = document.getElementById('loadingOverlay');
+    if (!el) return;
+    el.querySelector('span').textContent = msg;
+    var s = el.querySelector('.sub');
+    if (s) s.textContent = sub || '';
+}
+function checkWebGL() {
+    try {
+        var c = document.createElement('canvas');
+        return !!(c.getContext('webgl') || c.getContext('experimental-webgl'));
+    } catch(e) { return false; }
+}
+var _3dLoaded = false;
+var _3dError = null;
+window.addEventListener('error', function(e) {
+    if (!_3dError) {
+        _3dError = (e.error && e.error.message) || e.message || 'Unknown error';
+        showError('Error: ' + _3dError, 'Open browser console (F12) for details');
+    }
+});
+if (!checkWebGL()) {
+    _3dError = 'WebGL not supported';
+    showError('WebGL is disabled or not supported',
+        'Enable WebGL in your browser settings or try a different browser (Chrome/Firefox/Edge). '
+        + 'In Chrome: settings → system → "Use hardware acceleration when available".');
+}
+setTimeout(function() {
+    if (!_3dLoaded && !_3dError) {
+        document.querySelector('.loading span').textContent = 'Loading libraries...';
+        var s = document.querySelector('.loading .sub');
+        if (s) s.textContent = 'Downloading 3D engine (~1.2MB), please wait';
+    }
+}, 8000);
+setTimeout(function() {
+    if (!_3dLoaded && !_3dError) {
+        document.querySelector('.loading span').textContent = 'Still loading...';
+        var s = document.querySelector('.loading .sub');
+        if (s) s.textContent = 'Check your internet connection or try refreshing the page';
+    }
+}, 25000);
+</script>
+<script type="importmap">
+{
+    "imports": {
+        "three": "/static/lib/three/three.module.js",
+        "three/addons/": "/static/lib/three/"
+    }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// == Module-scoped variables (accessed by functions below) ==
+const FILENAME = {{ filename | tojson }};
+const VEHICLE_TYPE = {{ (vehicle.vehicle_type if vehicle else '') | tojson }};
+let renderer, scene, camera, controls, canvas, data;
+let terrain, trail, activeLine, aircraft;
+let pathPoints = [];
+let playing = false, playIdx = 0, speed = 1, viewMode = 'ground';
+
+function toENU(lat, lon, alt, home) {
+    const R = 6371000, latR = home.lat * Math.PI / 180;
+    return new THREE.Vector3(R * (lon - home.lon) * Math.cos(latR), alt, R * (lat - home.lat));
+}
+
+function resize() {
+    const w = window.innerWidth, h = window.innerHeight;
+    renderer.setSize(w, h);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+}
+
+try {
+if (_3dError) { _3dLoaded = true; throw new Error('Abort: ' + _3dError); }
+_3dLoaded = true;
+
+// == Renderer ==
+canvas = document.getElementById('replayCanvas');
+renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+
+scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87ceeb);
+scene.fog = new THREE.Fog(0x87ceeb, 1000, 4000);
+
+camera = new THREE.PerspectiveCamera(45, 1, 0.1, 2000);
+controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.maxPolarAngle = Math.PI / 2.05;
+controls.target.set(0,0,0);
+
+// == Lights ==
+scene.add(new THREE.HemisphereLight(0x87ceeb, 0x3a2a1a, 0.6));
+const sun = new THREE.DirectionalLight(0xffeedd, 1.8);
+sun.position.set(100, 200, 50);
+sun.castShadow = false;
+scene.add(sun);
+scene.add(new THREE.AmbientLight(0x4488ff, 0.2));
+const fill = new THREE.DirectionalLight(0x4488ff, 0.3);
+fill.position.set(-50, 30, -80);
+scene.add(fill);
+
+// == Resize ==
+window.addEventListener('resize', resize);
+resize();
+
+// == Fetch ==
+const ac = new AbortController();
+const ft = setTimeout(() => ac.abort(), 45000);
+fetch('/api/replay3d/' + encodeURIComponent(FILENAME), { signal: ac.signal })
+    .then(r => { clearTimeout(ft); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(d => { data = d; build(d); document.getElementById('loadingOverlay').classList.add('hidden'); })
+    .catch(e => {
+        document.querySelector('.loading span').textContent = 'Error: ' + e.message;
+        document.querySelector('.loading .sub').textContent = 'Try refreshing or check server';
+    });
+} catch (e) {
+    var isWebGL = (e.message && e.message.indexOf('WebGL') >= 0) || (e.message && e.message.indexOf('Abort') >= 0);
+    showError(
+        isWebGL ? 'WebGL is disabled' : 'Error: ' + e.message,
+        isWebGL
+            ? 'Enable WebGL in your browser settings, then reload. In Chrome: settings → system → "Use hardware acceleration when available". '
+            : 'Open browser console (F12) for details'
+    );
+}
+
+// == Build scene ==
+function build(d) {
+    const { coordinates, home, bbox, grid_size, elevation, center } = d;
+    const G = grid_size;
+
+    // -- Terrain --
+    const geo = new THREE.PlaneGeometry(1, 1, G - 1, G - 1);
+    const verts = geo.attributes.position.array;
+    const cols = new Float32Array(verts.length);
+
+    let mn = Infinity, mx = -Infinity;
+    elevation.forEach(r => r.forEach(v => { if (v < mn) mn = v; if (v > mx) mx = v; }));
+    const range = Math.max(mx - mn, 1);
+
+    for (let yi = 0; yi < G; yi++) {
+        const lat = bbox.min_lat + (bbox.max_lat - bbox.min_lat) * yi / (G - 1);
+        for (let xi = 0; xi < G; xi++) {
+            const lon = bbox.min_lon + (bbox.max_lon - bbox.min_lon) * xi / (G - 1);
+            const e = elevation[yi][xi];
+            const p = toENU(lat, lon, e, home);
+            const idx = (yi * G + xi) * 3;
+            verts[idx] = p.x;
+            verts[idx + 1] = Math.min(p.y, 500);
+            verts[idx + 2] = p.z;
+
+            const t = (e - mn) / range;
+            const r = t < 0.4 ? 0.15 + t * 1.2 : 0.55;
+            const g = t < 0.25 ? 0.2 + t * 1.6 : t < 0.55 ? 0.7 - (t - 0.25) * 1.2 : 0.3;
+            const b = t < 0.5 ? 0.08 : 0.08 + (t - 0.5) * 0.7;
+            cols[idx] = r; cols[idx+1] = g; cols[idx+2] = b;
+        }
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+    geo.computeVertexNormals();
+
+    const mat = new THREE.MeshStandardMaterial({
+        vertexColors: true, roughness: 0.7, metalness: 0.0, side: THREE.DoubleSide,
+    });
+    terrain = new THREE.Mesh(geo, mat);
+    terrain.receiveShadow = false;
+    scene.add(terrain);
+
+    // Ground reference grid
+    const gridHelper = new THREE.GridHelper(bbox.max_lon - bbox.min_lon, 20, 0x0ea5e9, 0x0ea5e9);
+    gridHelper.position.y = mn - 2;
+    gridHelper.material.transparent = true;
+    gridHelper.material.opacity = 0.15;
+    scene.add(gridHelper);
+
+    // -- Path --
+    pathPoints = coordinates
+        .filter(c => Math.abs(c[0]) > 0.0001)
+        .map(c => toENU(c[0], c[1], c[2], home));
+
+    if (pathPoints.length > 1) {
+        const curve = new THREE.CatmullRomCurve3(pathPoints, false);
+        const pts = curve.getPoints(Math.min(pathPoints.length * 3, 3000));
+        const tg = new THREE.BufferGeometry().setFromPoints(pts);
+        trail = new THREE.Line(tg, new THREE.LineBasicMaterial({ color: 0x0ea5e9, transparent: true, opacity: 0.35 }));
+        scene.add(trail);
+
+        const ag = new THREE.BufferGeometry();
+        const pos = new Float32Array(pathPoints.length * 3);
+        ag.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        activeLine = new THREE.Line(ag, new THREE.LineBasicMaterial({ color: 0x0ea5e9 }));
+        scene.add(activeLine);
+    }
+
+    // -- Aircraft --
+    aircraft = mkAircraft(VEHICLE_TYPE);
+    scene.add(aircraft);
+
+    // Center camera
+    const cp = toENU(center.lat, center.lon, (mn + mx) / 2, home);
+    controls.target.copy(cp);
+    camera.position.set(cp.x + mx * 0.5, cp.y + 100, cp.z - mx * 0.8);
+    controls.update();
+
+    // -- Playback controls --
+    const tl = document.getElementById('timeline');
+    tl.max = pathPoints.length - 1;
+    tl.value = 0;
+
+    tl.addEventListener('input', () => {
+        const i = parseInt(tl.value);
+        playIdx = i;
+        if (playing) { playing = false; document.getElementById('playBtn').textContent = '▶ Play'; }
+        seek(i);
+    });
+
+    document.getElementById('playBtn').addEventListener('click', () => {
+        if (pathPoints.length < 2) return;
+        playing = !playing;
+        document.getElementById('playBtn').textContent = playing ? '⏸ Pause' : '▶ Play';
+        if (playing && playIdx >= pathPoints.length - 1) playIdx = 0;
+    });
+
+    document.getElementById('speedSelect').addEventListener('change', e => { speed = parseFloat(e.target.value); });
+
+    // Initial seek (no camera move — keep overview)
+    seek(0, true);
+    anim();
+}
+
+// == Seek ==
+function seek(i, noCam) {
+    if (!pathPoints.length || i >= pathPoints.length) return;
+    updateAircraft(i);
+    updateTrail(i);
+    updateInfo(i);
+    updateTime(i);
+    if (!noCam) updateCamera(i);
+}
+
+// == Animation loop ==
+function anim() {
+    requestAnimationFrame(anim);
+    if (playing && pathPoints.length > 1) {
+        playIdx += 0.016 * speed;
+        if (playIdx >= pathPoints.length - 1) {
+            playIdx = 0;
+            playing = false;
+            document.getElementById('playBtn').textContent = '▶ Play';
+        }
+        document.getElementById('timeline').value = Math.min(Math.floor(playIdx), pathPoints.length - 1);
+        seek(Math.floor(playIdx));
+    }
+    controls.update();
+    renderer.render(scene, camera);
+}
+
+// == Aircraft model ==
+function mkAircraft(type) {
+    const g = new THREE.Group();
+    const col = 0x0ea5e9, acc = 0xf43f5e;
+    const dark = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.7, roughness: 0.3 });
+    const bodyMat = new THREE.MeshStandardMaterial({ color: col, metalness: 0.2, roughness: 0.5 });
+    const accentMat = new THREE.MeshStandardMaterial({ color: acc, metalness: 0.1, roughness: 0.6 });
+
+    if (type === 'quad' || type === 'multirotor' || type === 'copter') {
+        const body = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.12, 0.5), bodyMat);
+        body.position.y = 0.1;
+        body.castShadow = true;
+        g.add(body);
+
+        [[-1,-1],[1,-1],[-1,1],[1,1]].forEach(([sx, sz]) => {
+            const a = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 1.0, 6), dark);
+            a.position.set(sx * 0.5, 0.08, sz * 0.5);
+            a.rotation.z = Math.PI/2;
+            a.rotation.y = -Math.atan2(sz, sx);
+            g.add(a);
+
+            const m = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.06, 8), dark);
+            m.position.set(sx * 1.0, 0.08, sz * 1.0);
+            g.add(m);
+
+            const p = new THREE.Mesh(new THREE.CircleGeometry(0.3, 10),
+                new THREE.MeshStandardMaterial({ color: acc, transparent: true, opacity: 0.18, side: THREE.DoubleSide }));
+            p.position.set(sx * 1.0, 0.14, sz * 1.0);
+            p.rotation.x = -Math.PI/2;
+            g.add(p);
+        });
+    } else {
+        const fuse = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.06, 0.8, 6), bodyMat);
+        fuse.rotation.x = Math.PI/2;
+        fuse.position.y = 0.08;
+        fuse.castShadow = true;
+        g.add(fuse);
+
+        const ws = new THREE.Shape();
+        ws.moveTo(0,0); ws.lineTo(-0.8, -0.35); ws.lineTo(-0.3,0); ws.lineTo(-0.8,0.35); ws.lineTo(0,0);
+        const wing = new THREE.Mesh(new THREE.ShapeGeometry(ws), bodyMat);
+        wing.position.set(0.15, 0.08, 0);
+        wing.rotation.x = -Math.PI/2;
+        g.add(wing);
+
+        [-1,1].forEach(s => {
+            const f = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.1, 0.25), accentMat);
+            f.position.set(-0.55*s, 0.16, -0.3);
+            g.add(f);
+        });
+        const stab = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.1, 0.15), accentMat);
+        stab.position.set(0.65, 0.16, 0);
+        g.add(stab);
+
+        const nose = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.15, 6), dark);
+        nose.rotation.x = Math.PI/2;
+        nose.position.set(-0.55, 0.08, 0);
+        g.add(nose);
+    }
+
+    const glow = new THREE.Mesh(new THREE.SphereGeometry(0.04, 6, 6),
+        new THREE.MeshBasicMaterial({ color: 0x00ff00 }));
+    glow.position.y = 0.04;
+    g.add(glow);
+
+    return g;
+}
+
+function updateAircraft(i) {
+    if (!aircraft || i >= pathPoints.length) return;
+    const p = pathPoints[i];
+    aircraft.position.copy(p);
+    const c = data.coordinates[i];
+    if (c.length > 9) {
+        aircraft.rotation.set(c[7] || 0, -(c[9] || 0) + Math.PI/2, c[8] || 0, 'ZYX');
+    } else if (i + 1 < pathPoints.length) {
+        const dir = new THREE.Vector3().subVectors(pathPoints[i+1], p);
+        if (dir.length() > 0.1) aircraft.lookAt(pathPoints[i+1]);
+    }
+}
+
+function updateTrail(n) {
+    if (!activeLine) return;
+    const pos = activeLine.geometry.attributes.position.array;
+    const cnt = Math.min(n + 1, pathPoints.length);
+    for (let i = 0; i < cnt; i++) {
+        pos[i*3] = pathPoints[i].x;
+        pos[i*3+1] = pathPoints[i].y;
+        pos[i*3+2] = pathPoints[i].z;
+    }
+    activeLine.geometry.setDrawRange(0, cnt);
+    activeLine.geometry.attributes.position.needsUpdate = true;
+}
+
+function updateInfo(i) {
+    if (i >= data.coordinates.length) return;
+    const c = data.coordinates[i];
+    document.getElementById('infoAlt').textContent = (c[2]||0).toFixed(1);
+    document.getElementById('infoSpeed').textContent = (c[3]||0).toFixed(1);
+    document.getElementById('infoMode').textContent = c[23] || '—';
+    if (data.home)
+        document.getElementById('infoDist').textContent =
+            (toENU(c[0], c[1], 0, data.home).distanceTo(toENU(data.home.lat, data.home.lon, 0, data.home))/1000).toFixed(2);
+}
+
+function updateTime(i) {
+    const c = data.coordinates[i];
+    if (c.length > 4 && c[4]) {
+        const d = new Date(c[4]*1000);
+        document.getElementById('timeDisplay').textContent = d.toLocaleTimeString();
+    }
+}
+
+function updateCamera(i) {
+    if (viewMode === 'free' || !aircraft || i >= pathPoints.length) return;
+    const p = pathPoints[i];
+    if (viewMode === 'ground') {
+        const off = new THREE.Vector3(50, 30, 50);
+        controls.target.lerp(p, 0.06);
+        camera.position.lerp(p.clone().add(off), 0.06);
+    } else if (viewMode === 'fpv') {
+        camera.position.copy(p);
+        const li = Math.min(i + 8, pathPoints.length - 1);
+        camera.lookAt(pathPoints[li]);
+        controls.target.copy(p);
+    }
+}
+
+// == View buttons ==
+function setView(mode) {
+    viewMode = mode;
+    controls.enabled = mode === 'free';
+    document.querySelectorAll('.view-btns button').forEach(b => b.classList.remove('active'));
+    const btn = document.getElementById('v' + mode.charAt(0).toUpperCase() + mode.slice(1));
+    if (btn) btn.classList.add('active');
+}
+document.getElementById('vGround').addEventListener('click', () => setView('ground'));
+document.getElementById('vFPV').addEventListener('click', () => setView('fpv'));
+document.getElementById('vFree').addEventListener('click', () => setView('free'));
+</script>
+</body>
+</html>

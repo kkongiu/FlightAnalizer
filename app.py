@@ -20,6 +20,7 @@ from database import (save_flight, get_all_flights, get_flight, delete_flight,
                       set_vehicle_photo, get_vehicle_stats, assign_vehicle_to_flight,
                       get_all_tags, set_flight_tags, get_flight_tags,
                       get_battery_health_by_vehicle)
+import httpx
 
 USER = os.environ.get("POCKET_USER")
 PASS = os.environ.get("POCKET_PASS")
@@ -818,6 +819,94 @@ async def api_apply_default_vehicle(request: Request):
             assign_vehicle_to_flight(f["filename"], default_v.id)
             updated += 1
     return {"updated": updated, "vehicle": default_v.name}
+
+
+@app.get("/replay3d/{filename:path}", response_class=HTMLResponse)
+async def replay3d_page(request: Request, filename: str):
+    redirect = require_auth(request)
+    if redirect:
+        return redirect
+    flight = get_flight(filename)
+    if not flight:
+        return HTMLResponse("Flight not found", status_code=404)
+    vehicle = get_vehicle(flight.get("vehicle_id")) if flight.get("vehicle_id") else None
+    resp = templates.TemplateResponse(request, "replay3d.html", {
+        "flight": flight, "vehicle": vehicle, "filename": filename
+    })
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
+
+
+@app.get("/api/replay3d/{filename:path}")
+async def api_replay3d(request: Request, filename: str):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    flight = get_flight(filename)
+    if not flight:
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+    coords = flight.get("coordinates", [])
+    if len(coords) < 2:
+        return JSONResponse({"error": "not enough coordinates"}, status_code=400)
+
+    # Home point (first valid GPS)
+    home_lat, home_lon = 0.0, 0.0
+    for c in coords:
+        lat, lon = c[0], c[1]
+        if abs(lat) > 0.001 and abs(lon) > 0.001:
+            home_lat, home_lon = lat, lon
+            break
+
+    # Bounding box with 25% padding
+    lats = [c[0] for c in coords if abs(c[0]) > 0.001]
+    lons = [c[1] for c in coords if abs(c[1]) > 0.001]
+    if not lats or not lons:
+        return JSONResponse({"error": "no valid GPS"}, status_code=400)
+    min_lat, max_lat = min(lats), max(lats)
+    min_lon, max_lon = min(lons), max(lons)
+    lat_pad = max((max_lat - min_lat) * 0.25, 0.001)
+    lon_pad = max((max_lon - min_lon) * 0.25, 0.001)
+    min_lat -= lat_pad; max_lat += lat_pad
+    min_lon -= lon_pad; max_lon += lon_pad
+
+    # Elevation grid (20x20 for speed vs quality tradeoff)
+    GRID = 20
+    elevs = [[0.0] * GRID for _ in range(GRID)]
+    try:
+        locations = []
+        for yi in range(GRID):
+            lat = min_lat + (max_lat - min_lat) * yi / (GRID - 1)
+            for xi in range(GRID):
+                lon = min_lon + (max_lon - min_lon) * xi / (GRID - 1)
+                locations.append({"latitude": round(lat, 6), "longitude": round(lon, 6)})
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.post(
+                "https://api.open-elevation.com/api/v1/lookup",
+                json={"locations": locations}
+            )
+            if r.status_code == 200:
+                results = r.json().get("results", [])
+                for yi in range(GRID):
+                    for xi in range(GRID):
+                        idx = yi * GRID + xi
+                        if idx < len(results):
+                            elev = results[idx].get("elevation", 0)
+                            elevs[yi][xi] = round(max(elev, 0), 1)
+    except Exception:
+        pass
+
+    return {
+        "coordinates": coords,
+        "home": {"lat": home_lat, "lon": home_lon},
+        "bbox": {"min_lat": min_lat, "max_lat": max_lat,
+                 "min_lon": min_lon, "max_lon": max_lon},
+        "center": {"lat": (min_lat + max_lat) / 2, "lon": (min_lon + max_lon) / 2},
+        "grid_size": GRID,
+        "elevation": elevs,
+    }
 
 
 @app.get("/api/battery-health")
