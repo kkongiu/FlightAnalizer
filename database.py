@@ -81,6 +81,10 @@ def init_db():
             conn.execute("ALTER TABLE flights ADD COLUMN vehicle_id INTEGER DEFAULT NULL")
         except Exception:
             pass
+        try:
+            conn.execute("ALTER TABLE flights ADD COLUMN track_source TEXT DEFAULT 'csv'")
+        except Exception:
+            pass
         conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -123,7 +127,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
 def save_flight(summary: FlightSummary):
     with _get_conn() as conn:
         conn.execute("""
-            INSERT OR REPLACE INTO flights
+            INSERT INTO flights
             (filename, date, start_time, duration_s, distance_km,
              max_alt_m, min_alt_m, avg_alt_m, max_speed_kmh, avg_speed_kmh, max_vspd_ms,
              max_rssi_db, min_rssi_db, avg_rssi_db, min_rqly, avg_rqly,
@@ -133,6 +137,38 @@ def save_flight(summary: FlightSummary):
              home_distance_km, glide_ratio, efficiency_km_per_mah, vibration_score, events,
              coordinates)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(filename) DO UPDATE SET
+                date = excluded.date,
+                start_time = excluded.start_time,
+                duration_s = excluded.duration_s,
+                distance_km = excluded.distance_km,
+                max_alt_m = excluded.max_alt_m,
+                min_alt_m = excluded.min_alt_m,
+                avg_alt_m = excluded.avg_alt_m,
+                max_speed_kmh = excluded.max_speed_kmh,
+                avg_speed_kmh = excluded.avg_speed_kmh,
+                max_vspd_ms = excluded.max_vspd_ms,
+                max_rssi_db = excluded.max_rssi_db,
+                min_rssi_db = excluded.min_rssi_db,
+                avg_rssi_db = excluded.avg_rssi_db,
+                min_rqly = excluded.min_rqly,
+                avg_rqly = excluded.avg_rqly,
+                battery_start_v = excluded.battery_start_v,
+                battery_end_v = excluded.battery_end_v,
+                battery_min_v = excluded.battery_min_v,
+                battery_start_pct = excluded.battery_start_pct,
+                battery_end_pct = excluded.battery_end_pct,
+                battery_consumed_mah = excluded.battery_consumed_mah,
+                max_current_a = excluded.max_current_a,
+                txbat_v = excluded.txbat_v,
+                flight_modes = excluded.flight_modes,
+                sats_max = excluded.sats_max,
+                home_distance_km = excluded.home_distance_km,
+                glide_ratio = excluded.glide_ratio,
+                efficiency_km_per_mah = excluded.efficiency_km_per_mah,
+                vibration_score = excluded.vibration_score,
+                events = excluded.events,
+                coordinates = excluded.coordinates
         """, (
             summary.filename, summary.date, summary.start_time, summary.duration_s, summary.distance_km,
             summary.max_alt_m, summary.min_alt_m, summary.avg_alt_m, summary.max_speed_kmh, summary.avg_speed_kmh, summary.max_vspd_ms,
@@ -304,6 +340,11 @@ def assign_vehicle_to_flight(filename: str, vehicle_id: int | None):
         conn.execute("UPDATE flights SET vehicle_id = ? WHERE filename = ?", (vehicle_id, filename))
 
 
+def set_flight_track_source(filename: str, source: str):
+    with _get_conn() as conn:
+        conn.execute("UPDATE flights SET track_source = ? WHERE filename = ?", (source, filename))
+
+
 def get_flight_tags(filename: str) -> list[str]:
     with _get_conn() as conn:
         row = conn.execute("SELECT tags FROM flights WHERE filename = ?", (filename,)).fetchone()
@@ -341,16 +382,9 @@ def recalculate_home_distances():
         home_lat, home_lon = 0.0, 0.0
         for c in coords:
             lat, lon = c[0], c[1]
-            sats = c[24] if len(c) > 24 else 0
-            if abs(lat) > 0.001 and abs(lon) > 0.001 and sats >= 5:
+            if abs(lat) > 0.001 and abs(lon) > 0.001:
                 home_lat, home_lon = lat, lon
                 break
-        if home_lat == 0.0 and home_lon == 0.0:
-            for c in coords:
-                lat, lon = c[0], c[1]
-                if abs(lat) > 0.001 and abs(lon) > 0.001:
-                    home_lat, home_lon = lat, lon
-                    break
         if home_lat == 0.0 and home_lon == 0.0:
             continue
         home_dists = [_haversine_km(home_lat, home_lon, c[0], c[1]) for c in coords if abs(c[0]) > 0.001 or abs(c[1]) > 0.001]
@@ -491,4 +525,3 @@ def verify_user(username: str, password: str) -> dict | None:
 
 
 init_db()
-recalculate_home_distances()

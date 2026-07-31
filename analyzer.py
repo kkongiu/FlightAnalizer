@@ -113,7 +113,7 @@ def analyze(filename: str, points: list[TelemetryPoint]) -> FlightSummary:
                p.pitch, p.roll, p.yaw, p.rud, p.ele, p.thr, p.ail,
                p.vspd, p.heading,
                p.sa, p.sb, p.sc, p.sd, p.se, p.lsw, p.p1, p.flight_mode,
-               p.rssi_2, p.rsnr, p.trss, p.tqly, p.tsnr, p.curr, p.capa, p.bat_pct, p.txbat] for p in points]
+               p.rssi_2, p.rsnr, p.trss, p.tqly, p.tsnr, p.curr, p.capa, p.bat_pct, p.txbat, p.rqly] for p in points]
 
     return FlightSummary(
         filename=filename,

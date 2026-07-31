@@ -54,10 +54,12 @@
                         <option value="5">5x</option>
                         <option value="10">10x</option>
                     </select>
+                </div>
                 <div id="modeStripContainer" style="margin-top:0.35rem;display:none;">
                     <div id="modeStrip" style="height:12px;border-radius:4px;overflow:hidden;display:flex;width:100%;"></div>
                     <div id="modeLegend" style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-top:0.25rem;font-size:0.6rem;"></div>
                 </div>
+                <div id="criticalLegend" style="margin-top:0.5rem;font-size:0.7rem;display:none;"></div>
             </div>
             <div class="controller-col">
                 <div id="controller">
@@ -111,7 +113,7 @@
             <div class="chart-container"><canvas id="batteryChart"></canvas></div>
         </div>
         <div class="chart-row">
-            <div class="chart-container" style="width:100%;"><canvas id="navChart" style="height:400px;"></canvas></div>
+            <div class="chart-container chart-container-wide" style="width:100%;"><canvas id="navChart" style="height:400px;"></canvas></div>
         </div>
         <div class="chart-row">
             <div class="chart-container"><canvas id="vspdChart"></canvas></div>
@@ -559,6 +561,7 @@ const curr = displayCoords.map(c => c.length > 29 ? c[29] : 0);
 const capa = displayCoords.map(c => c.length > 30 ? c[30] : 0);
 const txbat = displayCoords.map(c => c.length > 31 ? c[31] : 0);
 const batPct = displayCoords.map(c => c.length > 32 ? c[32] : 0);
+const rqly = displayCoords.map(c => c.length > 33 ? c[33] : 0);
 
 // Map
 const map = L.map('map').setView([coords[0][0], coords[0][1]], 16);
@@ -588,7 +591,7 @@ const overlays = {
     'Labels': satelliteLabels
 };
 
-L.control.layers(baseMaps, overlays, {collapsed: false}).addTo(map);
+const layerControl = L.control.layers(baseMaps, overlays, {collapsed: false}).addTo(map);
 
 const polyline = L.polyline(latLng, {color: '#0ea5e9', weight: 3, opacity: 0.9}).addTo(map);
 map.fitBounds(polyline.getBounds().pad(0.05));
@@ -596,11 +599,160 @@ map.fitBounds(polyline.getBounds().pad(0.05));
 L.circleMarker([coords[0][0], coords[0][1]], {radius: 8, color: '#22c55e', fillColor: '#22c55e', fillOpacity: 1}).addTo(map).bindTooltip('Start');
 L.circleMarker([coords[coords.length-1][0], coords[coords.length-1][1]], {radius: 8, color: '#ef4444', fillColor: '#ef4444', fillOpacity: 1}).addTo(map).bindTooltip('End');
 
+// Critical event overlays (low signal / low quality / high speed)
+// Absolute thresholds, editable in the legend, persisted in localStorage.
+(function() {
+    const legendBox = document.getElementById('criticalLegend');
+    const defaults = {lowRssi: -80, lowSnr: 8, lowLq: 90, highSpd: 60};
+    let cfg = Object.assign({}, defaults);
+    try {
+        cfg = Object.assign(cfg, JSON.parse(localStorage.getItem('criticalThresholds') || '{}'));
+    } catch (e) {}
+    const cats = [
+        {key: 'lowRssi', col: 5,  kind: 'low',  color: '#ef4444', label: 'Low Signal (RSSI)', unit: 'dBm'},
+        {key: 'lowSnr',  col: 25, kind: 'low',  color: '#f97316', label: 'Low Signal Quality (SNR)', unit: 'dB'},
+        {key: 'lowLq',   col: 33, kind: 'low',  color: '#a855f7', label: 'Low Link Quality (LQ)', unit: '%'},
+        {key: 'highSpd', col: 3,  kind: 'high', color: '#eab308', label: 'High Speed', unit: 'km/h'},
+    ];
+    const layers = {};
+    const vis = {};
+    let focusKey = null;
+    function buildCritical() {
+        Object.keys(layers).forEach(k => {
+            if (layers[k]) {
+                map.removeLayer(layers[k]);
+                layerControl.removeLayer(layers[k]);
+            }
+        });
+        legendBox.innerHTML = '';
+        const built = [];
+        cats.forEach(cat => {
+            const th = parseFloat(cfg[cat.key]);
+            if (isNaN(th)) {
+                built.push({cat, threshold: cfg[cat.key], peaks: 0, group: null});
+                return;
+            }
+            const pts = [];
+            for (let i = 0; i < coords.length; i++) {
+                const c = coords[i];
+                const lat = c[0], lon = c[1];
+                if (!lat || !lon) continue;
+                const v = c.length > cat.col ? c[cat.col] : undefined;
+                if (v === undefined || v === null || v === 0 || isNaN(v)) continue;
+                pts.push({i, lat, lon, v});
+            }
+            if (pts.length < 5) {
+                built.push({cat, threshold: th, peaks: 0, group: null});
+                return;
+            }
+            const marked = new Set(pts.filter(p => cat.kind === 'low' ? p.v <= th : p.v >= th).map(p => p.i));
+            const runs = [];
+            let run = [];
+            for (let i = 0; i < coords.length; i++) {
+                if (marked.has(i)) { run.push(i); }
+                else if (run.length) { runs.push(run); run = []; }
+            }
+            if (run.length) runs.push(run);
+            const group = L.featureGroup();
+            let peaks = 0;
+            runs.forEach(r => {
+                const worst = r.reduce((a, b) => cat.kind === 'low' ? (coords[a][cat.col] <= coords[b][cat.col] ? a : b) : (coords[a][cat.col] >= coords[b][cat.col] ? a : b));
+                const latlngs = [];
+                let prev = null;
+                for (const i of r) {
+                    const lat = coords[i][0], lon = coords[i][1];
+                    if (prev && prev[0] === lat && prev[1] === lon) continue;
+                    latlngs.push([lat, lon]);
+                    prev = [lat, lon];
+                }
+                if (latlngs.length > 1) {
+                    L.polyline(latlngs, {color: cat.color, weight: 4, opacity: 0.95}).addTo(group);
+                }
+                const wc = coords[worst];
+                const ts = wc[4] ? new Date(wc[4] * 1000).toLocaleTimeString() : '';
+                L.circleMarker([wc[0], wc[1]], {radius: 6, color: '#fff', weight: 1.5, fillColor: cat.color, fillOpacity: 0.9})
+                    .bindTooltip(cat.label + ': ' + wc[cat.col] + ' ' + cat.unit + (ts ? ' @ ' + ts : ''), {direction: 'top'})
+                    .addTo(group);
+                peaks++;
+            });
+            if (peaks > 0) {
+                group.addTo(map);
+                layerControl.addOverlay(group, cat.label);
+                if (vis[cat.key] === false) map.removeLayer(group);
+                layers[cat.key] = group;
+            }
+            built.push({cat, threshold: th, peaks, group: peaks > 0 ? group : null});
+        });
+        legendBox.style.display = 'block';
+        const heading = document.createElement('div');
+        heading.style.cssText = 'display:flex;align-items:center;gap:0.5rem;font-weight:600;margin-bottom:0.25rem;color:#ddd;';
+        const headingTxt = document.createElement('span');
+        headingTxt.textContent = 'Critical events';
+        const resetBtn = document.createElement('button');
+        resetBtn.type = 'button';
+        resetBtn.textContent = 'Reset';
+        resetBtn.title = 'Ripristina le soglie predefinite';
+        resetBtn.style.cssText = 'font-size:0.62rem;padding:0.1rem 0.4rem;border-radius:4px;border:1px solid #555;background:#1e1e2e;color:#bbb;cursor:pointer;';
+        resetBtn.addEventListener('click', () => {
+            cfg = Object.assign({}, defaults);
+            try { localStorage.removeItem('criticalThresholds'); } catch (e) {}
+            buildCritical();
+        });
+        heading.appendChild(headingTxt);
+        heading.appendChild(resetBtn);
+        legendBox.appendChild(heading);
+        built.forEach(({cat, threshold, peaks, group}) => {
+            const row = document.createElement('div');
+            row.style.cssText = 'display:inline-flex;align-items:center;gap:0.3rem;margin-right:0.8rem;' + (peaks === 0 ? 'opacity:0.55;' : '');
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.checked = vis[cat.key] !== false && peaks > 0;
+            cb.disabled = peaks === 0;
+            cb.style.cssText = 'accent-color:' + cat.color + ';';
+            cb.addEventListener('change', () => {
+                vis[cat.key] = cb.checked;
+                if (group) {
+                    if (cb.checked) map.addLayer(group); else map.removeLayer(group);
+                }
+            });
+            const sw = document.createElement('span');
+            sw.style.cssText = 'display:inline-block;width:10px;height:10px;border-radius:2px;background:' + cat.color + ';';
+            const inp = document.createElement('input');
+            inp.type = 'number';
+            inp.value = threshold;
+            inp.title = 'Threshold (soglia)';
+            inp.style.cssText = 'width:3.6rem;padding:0.1rem 0.25rem;border-radius:4px;border:1px solid #555;background:#1e1e2e;color:#eee;font-size:0.7rem;';
+            inp.addEventListener('change', () => {
+                const v = parseFloat(inp.value);
+                if (isNaN(v)) return;
+                cfg[cat.key] = v;
+                try { localStorage.setItem('criticalThresholds', JSON.stringify(cfg)); } catch (e) {}
+                focusKey = cat.key;
+                buildCritical();
+            });
+            const txt = document.createElement('span');
+            txt.textContent = cat.label + ' ' + cat.unit + ' · ' + peaks + ' peak' + (peaks !== 1 ? 's' : '');
+            row.appendChild(cb);
+            row.appendChild(sw);
+            row.appendChild(inp);
+            row.appendChild(txt);
+            legendBox.appendChild(row);
+            if (focusKey === cat.key) {
+                inp.focus();
+            }
+        });
+        focusKey = null;
+    }
+    buildCritical();
+})();
+
 // Playback
 let playing = false, playIdx = 0, playTimer = null;
 const timeline = document.getElementById('timeline');
 const timeDisplay = document.getElementById('timeDisplay');
 const playBtn = document.getElementById('playBtn');
+const cursorState = {index: null};
+let timeCharts = [];
 
 const planeIcon = L.divIcon({
     className: '', html: '<div style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:20px;filter:drop-shadow(0 0 4px rgba(0,0,0,0.8));transform-origin:center;">&#9650;</div>',
@@ -617,19 +769,29 @@ function bearing(a, b) {
     return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
 }
 function updatePlane(idx) {
+    if (!flightPath.length) return;
     idx = Math.max(0, Math.min(idx, flightPath.length - 1));
     playIdx = idx;
     const pos = flightPath[idx];
     plane.setLatLng(pos);
-    const angle = idx < flightPath.length - 1 ? bearing(pos, flightPath[idx + 1]) : bearing(flightPath[idx - 1], pos);
-    plane.getElement().firstElementChild.style.transform = 'rotate(' + angle + 'deg)';
-    timeline.value = Math.round((idx / (flightPath.length - 1)) * 1000);
+    if (flightPath.length > 1) {
+        const angle = idx < flightPath.length - 1 ? bearing(pos, flightPath[idx + 1]) : bearing(flightPath[idx - 1], pos);
+        plane.getElement().firstElementChild.style.transform = 'rotate(' + angle + 'deg)';
+    }
+    timeline.value = Math.round((idx / Math.max(1, flightPath.length - 1)) * 1000);
     const ts = coords[Math.round((idx / flightPath.length) * coords.length)] || coords[0];
     if (ts && ts[4]) {
         const d = new Date(ts[4] * 1000);
         timeDisplay.textContent = d.toLocaleTimeString();
     }
     updateController(ts);
+    updateChartCursor(idx);
+}
+function updateChartCursor(idx) {
+    if (!timeCharts.length) return;
+    const rawIdx = Math.max(0, Math.min(coords.length - 1, Math.round((idx / flightPath.length) * coords.length)));
+    cursorState.index = Math.max(0, Math.min(displayCoords.length - 1, Math.round(rawIdx / step)));
+    timeCharts.forEach(ch => ch.draw());
 }
 function updateController(d) {
     const hasData = d && d.length >= 33;
@@ -730,6 +892,46 @@ function fmtTime(ts) {
     const d = new Date(ts * 1000);
     return d.toLocaleTimeString();
 }
+
+const playbackCursorPlugin = {
+    id: 'playbackCursor',
+    afterDraw(chart) {
+        const i = cursorState.index;
+        if (i === null || i === undefined) return;
+        if (chart.config.type === 'scatter') return;
+        const xs = chart.scales.x;
+        const area = chart.chartArea;
+        if (!xs || !area || !xs.getPixelForValue) return;
+        const x = xs.getPixelForValue(chart.data.labels[i], i);
+        if (x < area.left || x > area.right) return;
+        const ctx = chart.ctx;
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+        ctx.setLineDash([4, 3]);
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x, area.top);
+        ctx.lineTo(x, area.bottom);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        chart.data.datasets.forEach((ds, j) => {
+            if (ds.hidden) return;
+            const v = ds.data && ds.data[i];
+            if (v === undefined || v === null) return;
+            const meta = chart.getDatasetMeta(j);
+            const ys = meta.yAxisID ? chart.scales[meta.yAxisID] : chart.scales.y;
+            if (!ys) return;
+            const y = ys.getPixelForValue(v);
+            if (y < area.top || y > area.bottom) return;
+            ctx.fillStyle = ds.borderColor || 'rgba(255,255,255,0.9)';
+            ctx.font = '10px sans-serif';
+            ctx.textAlign = x > area.right - 40 ? 'right' : 'left';
+            ctx.fillText(String(Math.round(v * 100) / 100), x + (ctx.textAlign === 'left' ? 4 : -4), y - 3);
+        });
+        ctx.restore();
+    }
+};
+Chart.register(playbackCursorPlugin);
 
 new Chart(document.getElementById('altitudeChart'), {
     type: 'line',
@@ -837,6 +1039,7 @@ new Chart(document.getElementById('navChart'), {
     },
     options: {
         responsive: true,
+        maintainAspectRatio: false,
         elements: {line: {tension: 0.4, cubicInterpolationMode: 'monotone'}},
         plugins: {legend: {display: true, position: 'bottom', labels: {boxWidth: 12, font: {size: 10}}}, title: {display: true, text: 'Navigation Controls & Attitude'}},
         scales: {
@@ -898,6 +1101,7 @@ new Chart(document.getElementById('linkQualityChart'), {
             {label: 'RSNR (dB)', data: rsnr, borderColor: '#22c55e', pointRadius: 0, yAxisID: 'y'},
             {label: 'TSNR (dB)', data: tsnr, borderColor: '#3b82f6', pointRadius: 0, yAxisID: 'y'},
             {label: 'TQly (%)', data: tqly, borderColor: '#eab308', pointRadius: 0, yAxisID: 'y1'},
+            {label: 'RQly (%)', data: rqly, borderColor: '#a855f7', pointRadius: 0, yAxisID: 'y1'},
         ]
     },
     options: {
@@ -1027,5 +1231,10 @@ new Chart(document.getElementById('stickResponseChart'), {
         }
     }
 });
+
+timeCharts = ['altitudeChart', 'speedChart', 'rssiChart', 'batteryChart', 'navChart', 'vspdChart', 'headingChart', 'linkQualityChart', 'currentChart', 'capacityChart', 'txbatChart']
+    .map(id => Chart.getChart(document.getElementById(id)))
+    .filter(Boolean);
+updateChartCursor(0);
 </script>
 {% endblock %}

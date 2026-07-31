@@ -16,12 +16,43 @@
             <option value="">All tags</option>
             <option value="__untagged">Untagged</option>
         </select>
+        <div class="filter-group">
+            <label>Dist (km)</label>
+            <select id="fDistOp">
+                <option value="gte">&ge;</option>
+                <option value="lte">&le;</option>
+            </select>
+            <input type="number" id="fDistVal" step="0.1" min="0" placeholder="any">
+        </div>
+        <div class="filter-group">
+            <label>Max alt (m)</label>
+            <select id="fAltOp">
+                <option value="gte">&ge;</option>
+                <option value="lte">&le;</option>
+            </select>
+            <input type="number" id="fAltVal" step="1" min="0" placeholder="any">
+        </div>
+        <div class="filter-group">
+            <label>Dur (min)</label>
+            <select id="fDurOp">
+                <option value="gte">&ge;</option>
+                <option value="lte">&le;</option>
+            </select>
+            <input type="number" id="fDurVal" step="0.5" min="0" placeholder="any">
+        </div>
+        <button id="clearFiltersBtn" class="btn-ghost" title="Reset all filters">Clear filters</button>
     </div>
     {% if flights %}
+    <div id="selectionBar">
+        <span class="sel-count"><span id="selCount">0</span> selected</span>
+        <button id="deleteSelectedBtn" class="btn-danger btn-sm">Delete selected</button>
+        <button id="clearSelectionBtn" class="btn-ghost">Clear selection</button>
+    </div>
     <div class="table-wrap">
         <table>
             <thead>
                 <tr>
+                    <th class="sel-col"><input type="checkbox" id="selectAllCb" title="Select all filtered"></th>
                     <th>Date</th>
                     <th>Time</th>
                     <th>Duration</th>
@@ -35,7 +66,8 @@
             </thead>
             <tbody id="flightsBody">
             {% for f in flights %}
-                <tr class="flight-row" data-filename="{{ f.filename }}" data-date="{{ f.date }}" data-tags="{{ f.tags | join(',') }}">
+                <tr class="flight-row" data-filename="{{ f.filename }}" data-date="{{ f.date }}" data-tags="{{ f.tags | join(',') }}" data-distance="{{ f.distance_km }}" data-alt="{{ f.max_alt_m }}" data-duration="{{ f.duration_s }}">
+                    <td class="sel-col"><input type="checkbox" class="row-cb" title="Select"></td>
                     <td>{{ f.date }}</td>
                     <td>{{ f.start_time }}</td>
                     <td>{{ f.duration_s | fmt_duration }}</td>
@@ -61,6 +93,7 @@
 const PAGE_SIZE = 20;
 let currentPage = 1;
 const allRows = Array.from(document.querySelectorAll('.flight-row'));
+const selected = new Set();
 
 // Load tags for filter dropdown
 fetch('/flight/api/tags').then(r => r.json()).then(data => {
@@ -72,18 +105,54 @@ fetch('/flight/api/tags').then(r => r.json()).then(data => {
     });
 });
 
+function numVal(id) {
+    const v = parseFloat(document.getElementById(id).value);
+    return isNaN(v) ? null : v;
+}
+
 function filterRows() {
     const q = document.getElementById('searchInput').value.toLowerCase();
     const tagFilter = document.getElementById('tagFilter').value;
+    const distV = numVal('fDistVal'), distOp = document.getElementById('fDistOp').value;
+    const altV = numVal('fAltVal'), altOp = document.getElementById('fAltOp').value;
+    const durV = numVal('fDurVal'), durOp = document.getElementById('fDurOp').value;
     return allRows.filter(r => {
         const matchSearch = r.getAttribute('data-filename').toLowerCase().includes(q)
             || r.getAttribute('data-date').includes(q);
         if (!matchSearch) return false;
-        if (!tagFilter) return true;
-        const rowTags = (r.getAttribute('data-tags') || '').split(',').filter(Boolean);
-        if (tagFilter === '__untagged') return rowTags.length === 0;
-        return rowTags.includes(tagFilter);
+        if (tagFilter) {
+            const rowTags = (r.getAttribute('data-tags') || '').split(',').filter(Boolean);
+            if (tagFilter === '__untagged') { if (rowTags.length !== 0) return false; }
+            else if (!rowTags.includes(tagFilter)) return false;
+        }
+        const matches = (value, op, target) => target === null || (op === 'lte' ? value <= target : value >= target);
+        const dist = parseFloat(r.getAttribute('data-distance'));
+        const alt = parseFloat(r.getAttribute('data-alt'));
+        const dur = parseFloat(r.getAttribute('data-duration')) / 60;
+        return matches(dist, distOp, distV) && matches(alt, altOp, altV) && matches(dur, durOp, durV);
     });
+}
+
+function visibleRows() {
+    return allRows.filter(r => r.style.display !== 'none');
+}
+
+function syncSelectionUI() {
+    const n = selected.size;
+    const bar = document.getElementById('selectionBar');
+    bar.classList.toggle('show', n > 0);
+    document.getElementById('selCount').textContent = n;
+    allRows.forEach(r => {
+        const name = r.getAttribute('data-filename');
+        r.classList.toggle('selected', selected.has(name));
+        const cb = r.querySelector('.row-cb');
+        if (cb) cb.checked = selected.has(name);
+    });
+    const vis = visibleRows();
+    const selVis = vis.filter(r => selected.has(r.getAttribute('data-filename'))).length;
+    const selAll = document.getElementById('selectAllCb');
+    selAll.checked = vis.length > 0 && selVis === vis.length;
+    selAll.indeterminate = selVis > 0 && selVis < vis.length;
 }
 
 function renderPage() {
@@ -97,17 +166,72 @@ function renderPage() {
     matching.slice(start, end).forEach(r => r.style.display = '');
 
     const pag = document.getElementById('pagination');
-    if (totalPages <= 1) { pag.innerHTML = ''; return; }
-    pag.innerHTML = `
-        <button onclick="currentPage=Math.max(1,currentPage-1);renderPage()" ${currentPage<=1?'disabled':''}>&laquo; Prev</button>
-        <span>Page ${currentPage} / ${totalPages} (${matching.length} flights)</span>
-        <button onclick="currentPage=Math.min(${totalPages},currentPage+1);renderPage()" ${currentPage>=totalPages?'disabled':''}>Next &raquo;</button>
-    `;
+    if (totalPages <= 1) { pag.innerHTML = ''; }
+    else {
+        pag.innerHTML = `
+            <button onclick="currentPage=Math.max(1,currentPage-1);renderPage()" ${currentPage<=1?'disabled':''}>&laquo; Prev</button>
+            <span>Page ${currentPage} / ${totalPages} (${matching.length} flights)</span>
+            <button onclick="currentPage=Math.min(${totalPages},currentPage+1);renderPage()" ${currentPage>=totalPages?'disabled':''}>Next &raquo;</button>
+        `;
+    }
+    syncSelectionUI();
 }
 
-document.getElementById('searchInput').addEventListener('input', () => { currentPage = 1; renderPage(); });
-document.getElementById('tagFilter').addEventListener('change', () => { currentPage = 1; renderPage(); });
-if (allRows.length > PAGE_SIZE) renderPage();
+['searchInput', 'fDistVal', 'fAltVal', 'fDurVal'].forEach(id => {
+    document.getElementById(id).addEventListener('input', () => { currentPage = 1; renderPage(); });
+});
+['tagFilter', 'fDistOp', 'fAltOp', 'fDurOp'].forEach(id => {
+    document.getElementById(id).addEventListener('change', () => { currentPage = 1; renderPage(); });
+});
+document.getElementById('clearFiltersBtn').addEventListener('click', () => {
+    document.getElementById('searchInput').value = '';
+    document.getElementById('tagFilter').value = '';
+    ['fDistVal', 'fAltVal', 'fDurVal'].forEach(id => document.getElementById(id).value = '');
+    currentPage = 1;
+    renderPage();
+});
+
+document.querySelectorAll('.row-cb').forEach(cb => {
+    cb.addEventListener('change', () => {
+        const row = cb.closest('.flight-row');
+        const name = row.getAttribute('data-filename');
+        if (cb.checked) selected.add(name); else selected.delete(name);
+        syncSelectionUI();
+    });
+});
+
+document.getElementById('selectAllCb').addEventListener('change', () => {
+    const vis = visibleRows();
+    const checked = document.getElementById('selectAllCb').checked;
+    vis.forEach(r => {
+        const name = r.getAttribute('data-filename');
+        if (checked) selected.add(name); else selected.delete(name);
+    });
+    syncSelectionUI();
+});
+
+document.getElementById('clearSelectionBtn').addEventListener('click', () => {
+    selected.clear();
+    syncSelectionUI();
+});
+
+document.getElementById('deleteSelectedBtn').addEventListener('click', async () => {
+    const list = [...selected];
+    if (!list.length) return;
+    const preview = list.slice(0, 8).join('\n') + (list.length > 8 ? '\n...' : '');
+    if (!confirm('Delete ' + list.length + ' flight(s)?\n\n' + preview + '\n\nThis cannot be undone.')) return;
+    const btn = document.getElementById('deleteSelectedBtn');
+    btn.textContent = 'Deleting...'; btn.disabled = true;
+    let ok = 0, fail = 0;
+    for (const name of list) {
+        try {
+            const res = await fetch('/flight/api/flights/' + encodeURIComponent(name), { method: 'DELETE' });
+            if (res.ok) ok++; else fail++;
+        } catch(e) { fail++; }
+    }
+    if (fail) { alert(ok + ' deleted, ' + fail + ' failed'); window.location.reload(); }
+    else { window.location.reload(); }
+});
 
 document.querySelectorAll('.delete-btn').forEach(btn => {
     btn.addEventListener('click', async () => {

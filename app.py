@@ -21,7 +21,8 @@ from database import (save_flight, get_all_flights, get_flight, delete_flight,
                       get_all_tags, set_flight_tags, get_flight_tags,
                       get_battery_health_by_vehicle,
                       create_user, get_user, get_user_by_id, get_all_users,
-                      update_user, change_password, delete_user, verify_user)
+                      update_user, change_password, delete_user, verify_user,
+                      recalculate_home_distances, set_flight_track_source)
 import httpx
 
 SECRET_FILE = Path(__file__).parent / "data" / ".session_secret"
@@ -152,20 +153,20 @@ def get_stats():
         monthly[month_key]["distance"] += dist
         monthly[month_key]["duration"] += dur
 
-        if f.get("distance_km", 0) > records["max_distance"]["value"]:
-            records["max_distance"] = {"value": f["distance_km"], "flight": fn}
-        if f.get("max_alt_m", 0) > records["max_alt"]["value"]:
-            records["max_alt"] = {"value": f["max_alt_m"], "flight": fn}
-        if f.get("max_speed_kmh", 0) > records["max_speed"]["value"]:
-            records["max_speed"] = {"value": f["max_speed_kmh"], "flight": fn}
-        if f.get("duration_s", 0) > records["max_duration"]["value"]:
-            records["max_duration"] = {"value": f["duration_s"], "flight": fn}
-        if f.get("home_distance_km", 0) > records["max_home_dist"]["value"]:
-            records["max_home_dist"] = {"value": f["home_distance_km"], "flight": fn}
-        if f.get("glide_ratio", 0) > records["best_glide"]["value"]:
-            records["best_glide"] = {"value": f["glide_ratio"], "flight": fn}
-        if f.get("max_vspd_ms", 0) > records["max_vspd"]["value"]:
-            records["max_vspd"] = {"value": f["max_vspd_ms"], "flight": fn}
+        if (f.get("distance_km") or 0) > records["max_distance"]["value"]:
+            records["max_distance"] = {"value": f["distance_km"] or 0, "flight": fn}
+        if (f.get("max_alt_m") or 0) > records["max_alt"]["value"]:
+            records["max_alt"] = {"value": f["max_alt_m"] or 0, "flight": fn}
+        if (f.get("max_speed_kmh") or 0) > records["max_speed"]["value"]:
+            records["max_speed"] = {"value": f["max_speed_kmh"] or 0, "flight": fn}
+        if (f.get("duration_s") or 0) > records["max_duration"]["value"]:
+            records["max_duration"] = {"value": f["duration_s"] or 0, "flight": fn}
+        if (f.get("home_distance_km") or 0) > records["max_home_dist"]["value"]:
+            records["max_home_dist"] = {"value": f["home_distance_km"] or 0, "flight": fn}
+        if (f.get("glide_ratio") or 0) > records["best_glide"]["value"]:
+            records["best_glide"] = {"value": f["glide_ratio"] or 0, "flight": fn}
+        if (f.get("max_vspd_ms") or 0) > records["max_vspd"]["value"]:
+            records["max_vspd"] = {"value": f["max_vspd_ms"] or 0, "flight": fn}
 
     return {
         "total_flights": total_flights,
@@ -554,6 +555,7 @@ async def api_import_gpx(filename: str, request: Request, file: UploadFile = Fil
             }
 
         update_flight_track(filename, gpx_coords, stats)
+        set_flight_track_source(filename, "gpx")
         return {"ok": True, "points": len(gpx_coords), "stats": stats}
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=400)
@@ -646,22 +648,10 @@ async def api_export(request: Request, filename: str, format: str = "gpx"):
 
 
 
-@app.post("/api/flights/{filename:path}/rescan-nav")
-async def api_rescan_nav(filename: str, request: Request):
-    denied = require_api_auth(request)
-    if denied:
-        return denied
-    flight = get_flight(filename)
-    if not flight:
-        return JSONResponse({"error": "not found"}, status_code=404)
-    csv_path = LOG_DIR / filename
-    if not csv_path.exists():
-        return JSONResponse({"error": "CSV file not found"}, status_code=404)
-    try:
-        points = parse_log(csv_path)
-    except Exception as e:
-        return JSONResponse({"error": f"failed to parse CSV: {e}"}, status_code=400)
-    nav_list = sorted([(p.timestamp, (p.pitch, p.roll, p.yaw, p.rud, p.ele, p.thr, p.ail, p.vspd, p.heading, p.sa, p.sb, p.sc, p.sd, p.se, p.lsw, p.p1, p.flight_mode, p.rssi_2, p.rsnr, p.trss, p.tqly, p.tsnr, p.curr, p.capa, p.bat_pct, p.txbat)) for p in points])
+def merge_nav(flight: dict, points: list) -> tuple[list, int]:
+    """Merge nav telemetry (pitch/roll/RC/sticks/etc.) into stored coordinates
+    by matching timestamps with the parsed log. Returns (updated_coords, matched)."""
+    nav_list = sorted([(p.timestamp, (p.pitch, p.roll, p.yaw, p.rud, p.ele, p.thr, p.ail, p.vspd, p.heading, p.sa, p.sb, p.sc, p.sd, p.se, p.lsw, p.p1, p.flight_mode, p.rssi_2, p.rsnr, p.trss, p.tqly, p.tsnr, p.curr, p.capa, p.bat_pct, p.txbat, p.rqly)) for p in points])
     nav_tss = [t for t, _ in nav_list]
 
     def find_nearest(ts, max_delta=0.6):
@@ -689,13 +679,76 @@ async def api_rescan_nav(filename: str, request: Request):
         nav = nav_by_ts.get(nearest)
         if nav:
             matched += 1
-            if len(c) >= 33:
-                c[7], c[8], c[9], c[10], c[11], c[12], c[13], c[14], c[15], c[16], c[17], c[18], c[19], c[20], c[21], c[22], c[23], c[24], c[25], c[26], c[27], c[28], c[29], c[30], c[31], c[32] = nav
+            if len(c) >= 34:
+                c[7], c[8], c[9], c[10], c[11], c[12], c[13], c[14], c[15], c[16], c[17], c[18], c[19], c[20], c[21], c[22], c[23], c[24], c[25], c[26], c[27], c[28], c[29], c[30], c[31], c[32], c[33] = nav
             else:
                 c = list(c) + list(nav)
-        elif len(c) < 33:
-            c = list(c) + [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '', 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        elif len(c) < 34:
+            c = list(c) + [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         updated.append(c)
+    return updated, matched
+
+
+def sync_all_flights_from_csv() -> list:
+    """Re-analyze every flight that still has a CSV on disk with full-resolution
+    coordinates and all metrics, then recompute derived statistics. Runs at
+    startup so every statistic is complete from the first load without needing
+    a manual rescan-nav on each flight. GPX-imported tracks are preserved."""
+    updated = []
+    for f in sorted(LOG_DIR.glob("*.csv")):
+        key = f.name
+        flight = get_flight(key)
+        if not flight:
+            continue
+        try:
+            points = parse_log(f)
+            if not points:
+                continue
+        except Exception:
+            continue
+        if flight.get("track_source") == "gpx":
+            # Keep the GPX track, just refresh nav telemetry on top of it.
+            new_coords, matched = merge_nav(flight, points)
+            if not matched:
+                continue
+            update_flight_track(key, new_coords, {
+                "distance_km": flight.get("distance_km", 0),
+                "duration_s": flight.get("duration_s", 0),
+                "max_alt_m": flight.get("max_alt_m", 0),
+                "min_alt_m": flight.get("min_alt_m", 0),
+                "avg_alt_m": flight.get("avg_alt_m", 0),
+                "max_speed_kmh": flight.get("max_speed_kmh", 0),
+                "avg_speed_kmh": flight.get("avg_speed_kmh", 0),
+            })
+            updated.append(key)
+            continue
+        try:
+            summary = analyze(key, points)
+        except Exception:
+            continue
+        summary.vehicle_id = flight.get("vehicle_id")
+        save_flight(summary)
+        updated.append(key)
+    recalculate_home_distances()
+    return updated
+
+
+@app.post("/api/flights/{filename:path}/rescan-nav")
+async def api_rescan_nav(filename: str, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    flight = get_flight(filename)
+    if not flight:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    csv_path = LOG_DIR / filename
+    if not csv_path.exists():
+        return JSONResponse({"error": "CSV file not found"}, status_code=404)
+    try:
+        points = parse_log(csv_path)
+    except Exception as e:
+        return JSONResponse({"error": f"failed to parse CSV: {e}"}, status_code=400)
+    updated, matched = merge_nav(flight, points)
     flight["coordinates"] = updated
     update_flight_track(filename, updated, {
         "distance_km": flight.get("distance_km", 0),
@@ -1043,3 +1096,9 @@ async def api_change_password(user_id: int, request: Request):
         return JSONResponse({"error": "forbidden"}, status_code=403)
     change_password(user_id, new_password)
     return {"ok": True}
+
+
+# Auto-sync: merge nav telemetry for all flights and recompute derived metrics
+# on startup, so every statistic is available from the first load without
+# needing a manual rescan-nav on each flight.
+sync_all_flights_from_csv()

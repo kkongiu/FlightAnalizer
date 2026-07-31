@@ -416,8 +416,9 @@ footer {
     gap: 0.75rem;
 }
 .chart-container { position: relative; }
-.chart-container canvas { max-height: 180px; }
+.chart-container canvas { width: 100%; max-height: 180px; }
 .chart-container canvas#navChart { max-height: 400px; }
+.chart-container-wide { grid-column: 1 / -1; min-width: 0; }
 
 /* ===== CHART BOX (dashboard) ===== */
 .chart-box {
@@ -505,10 +506,9 @@ footer {
 .table-box tbody tr:hover { background: rgba(14,165,233,0.04); }
 
 /* ===== FLIGHTS LIST TABLE ===== */
-.flights-list {
-    max-width: 1200px;
-    margin: 0 auto;
-}
+.flights-list { max-width: 1200px; margin: 0 auto; }
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.table-wrap table { min-width: 720px; }
 .flights-list table {
     width: 100%;
     border-collapse: collapse;
@@ -565,6 +565,60 @@ footer {
     box-shadow: 0 0 0 3px var(--accent-dim);
 }
 .search-input::placeholder { color: var(--text-muted); }
+
+/* ===== FLIGHT FILTERS ===== */
+.filter-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+.filter-group label {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+.filter-group select,
+.filter-group input[type="number"] {
+    padding: 0.28rem 0.35rem;
+    border-radius: 4px;
+    border: 1px solid rgba(128,128,128,0.25);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 0.75rem;
+}
+.filter-group select { width: 3.4rem; }
+.filter-group input[type="number"] { width: 5rem; }
+.btn-ghost {
+    padding: 0.28rem 0.6rem;
+    font-size: 0.75rem;
+    border-radius: 4px;
+    border: 1px solid rgba(128,128,128,0.3);
+    background: var(--surface);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--transition);
+}
+.btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ===== FLIGHT SELECTION ===== */
+#selectionBar {
+    display: none;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding: 0.55rem 0.75rem;
+    margin-bottom: 1rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(239,68,68,0.35);
+    background: rgba(239,68,68,0.08);
+    font-size: 0.8rem;
+    color: var(--text);
+}
+#selectionBar.show { display: flex; }
+#selectionBar .sel-count { font-weight: 600; }
+th.sel-col, td.sel-col { width: 2.4rem; text-align: center; }
+.flights-list tr.selected td { background: rgba(14,165,233,0.08); }
+.flights-list tr.selected:hover td { background: rgba(14,165,233,0.12); }
 
 /* ===== NOTES ===== */
 .notes-section {
