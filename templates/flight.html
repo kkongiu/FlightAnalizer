@@ -105,6 +105,10 @@
     <div class="events-section" id="eventsSection" style="display:none;">
         <h3>Flight Events</h3>
         <div class="events-timeline" id="eventsTimeline"></div>
+        <div id="eventDetail" style="display:none;margin-top:0.6rem;padding:0.6rem 0.75rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);">
+            <div id="eventDetailTitle" style="font-size:0.75rem;font-weight:700;margin-bottom:0.4rem;"></div>
+            <div id="eventDetailGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:0.3rem 1rem;"></div>
+        </div>
     </div>
 
     <div class="charts-section">
@@ -453,9 +457,55 @@ if (events.length) {
             if (playing) stopPlay();
             updatePlane(idx);
             timeline.value = Math.round((idx / (flightPath.length - 1)) * 1000);
+            showEventDetail(e);
+            document.querySelectorAll('.event-badge').forEach(b => b.classList.remove('active'));
+            badge.classList.add('active');
         });
         container.appendChild(badge);
     });
+
+    const detailTitle = document.getElementById('eventDetailTitle');
+    const detailGrid = document.getElementById('eventDetailGrid');
+    const eventLabel = (e) => e.type === 'takeoff' ? 'Takeoff' : e.type === 'landing' ? 'Landing' : e.type === 'signal_loss' ? 'Signal Loss' : e.type === 'acro' ? (e.kind === 'loop' ? 'Loop' : 'Flip/Roll') : e.type === 'incident' ? 'Incident' : 'Mode Change';
+
+    function showEventDetail(e) {
+        const c = coords[e.i];
+        const rows = [];
+        const add = (label, value) => rows.push('<div class="ed-item"><span class="ed-label">' + label + '</span><span class="ed-value">' + value + '</span></div>');
+        const tsTxt = c && c[4] ? new Date(c[4] * 1000).toLocaleString() : '';
+        detailTitle.textContent = eventLabel(e) + ' — ' + tsTxt;
+        if (c) {
+            add('Time', tsTxt);
+            add('Altitude', c[2].toFixed(1) + ' m');
+            add('Ground speed', c[3].toFixed(1) + ' km/h');
+            add('Vertical speed', (c[14] || 0).toFixed(1) + ' m/s');
+            add('Flight mode', c[23] || '—');
+            add('Heading', (c[15] || 0).toFixed(0) + '°');
+            add('GPS', c[0].toFixed(5) + ', ' + c[1].toFixed(5));
+            add('RSSI', c[5] + ' dB');
+            add('LQ', (c[33] || 0) + '%');
+            add('Battery', (c[6] || 0).toFixed(2) + ' V (' + (c[31] || 0).toFixed(0) + '%)');
+            add('Current', (c[29] || 0).toFixed(1) + ' A');
+            add('Consumed', (c[30] || 0).toFixed(0) + ' mAh');
+            add('Tx battery', (c[32] || 0).toFixed(1) + ' V');
+        }
+        if (e.type === 'acro') {
+            add('Kind', e.kind === 'loop' ? 'Loop' : 'Flip/Roll');
+            add('Duration', e.dur + ' s');
+            add('Peak pitch', e.peak_pitch + ' rad');
+            add('Peak roll', e.peak_roll + ' rad');
+        } else if (e.type === 'incident') {
+            add('Alt at impact', e.alt + ' m');
+            add('Altitude lost', e.drop + ' m');
+            add('Vertical speed', e.vspd + ' m/s');
+            add('Signal loss', e.signal_loss ? 'Yes' : 'No');
+            add('Stopped', e.stopped ? 'Yes' : 'No');
+        } else if (e.type === 'mode_change') {
+            add('New mode', e.mode);
+        }
+        detailGrid.innerHTML = rows.join('');
+        document.getElementById('eventDetail').style.display = '';
+    }
 }
 
 // Flight mode color strip
