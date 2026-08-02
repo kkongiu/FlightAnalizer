@@ -12,10 +12,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from parser import parse_log
-from analyzer import analyze
+from analyzer import analyze, detect_events
+from geocode import home_coords, reverse_geocode
 from database import (save_flight, get_all_flights, get_flight, delete_flight,
                       rename_flight, update_notes, update_flight_track,
                       get_vehicles, get_vehicle, get_default_vehicle,
+                      update_flight_events,
                       create_vehicle, update_vehicle, delete_vehicle,
                       set_vehicle_photo, get_vehicle_stats, assign_vehicle_to_flight,
                       get_all_tags, set_flight_tags, get_flight_tags,
@@ -42,6 +44,23 @@ def _safe_filename(name: str) -> str:
     name = Path(name).name
     name = re.sub(r'[^\w\-.]', '_', name)
     return name or "unknown.csv"
+
+
+def _place_filename(path: Path, points) -> str | None:
+    """Return a new filename with the GPS place appended, or None."""
+    lat, lon = home_coords(points)
+    if not lat or not lon:
+        return None
+    place = reverse_geocode(lat, lon)
+    if not place:
+        return None
+    stem = path.stem
+    if stem.endswith("-" + place):
+        return None
+    new_name = f"{stem}-{place}{path.suffix}"
+    if (LOG_DIR / new_name).exists() or get_flight(new_name) is not None:
+        return None
+    return new_name
 
 
 def _xml_escape(s: str) -> str:
@@ -173,9 +192,9 @@ def get_stats():
         "total_distance_km": round(total_dist, 2),
         "total_duration_s": total_dur,
         "records": records,
-        "daily": [{"period": k, **v} for k, v in sorted(daily.items())],
-        "weekly": [{"period": k, **v} for k, v in sorted(weekly.items())],
-        "monthly": [{"period": k, **v} for k, v in sorted(monthly.items())],
+        "daily": [{"period": k, **v} for k, v in sorted(daily.items(), reverse=True)],
+        "weekly": [{"period": k, **v} for k, v in sorted(weekly.items(), reverse=True)],
+        "monthly": [{"period": k, **v} for k, v in sorted(monthly.items(), reverse=True)],
     }
 
 
@@ -337,6 +356,10 @@ async def scan_logs(request: Request):
             points = parse_log(f)
             if not points:
                 continue
+            new_name = _place_filename(f, points)
+            if new_name:
+                f.rename(LOG_DIR / new_name)
+                key = new_name
             summary = analyze(key, points)
             default_v = get_default_vehicle()
             if default_v:
@@ -367,6 +390,10 @@ async def upload_log(request: Request, file: UploadFile = File(...)):
         if not points:
             dest.unlink()
             return JSONResponse({"error": "No valid telemetry data found"}, status_code=400)
+        new_name = _place_filename(dest, points)
+        if new_name:
+            dest.rename(LOG_DIR / new_name)
+            safe_name = new_name
         summary = analyze(safe_name, points)
         default_v = get_default_vehicle()
         if default_v:
@@ -390,10 +417,19 @@ async def reprocess_flights(request: Request):
             points = parse_log(f)
             if not points:
                 continue
+            old_key = key
+            new_name = _place_filename(f, points)
+            if new_name:
+                f.rename(LOG_DIR / new_name)
+                key = new_name
             summary = analyze(key, points)
             existing = get_flight(key)
             if existing:
                 summary.vehicle_id = existing.get("vehicle_id")
+            elif key != old_key and get_flight(old_key) is not None:
+                rename_flight(old_key, key)
+                existing = get_flight(key)
+                summary.vehicle_id = existing.get("vehicle_id") if existing else None
             save_flight(summary)
             results.append(key)
         except Exception as e:
@@ -505,12 +541,24 @@ async def api_import_gpx(filename: str, request: Request, file: UploadFile = Fil
             gpx_coords.append([lat, lon, ele, speed, ts, 0, 0])
 
         for gc in gpx_coords:
+            while len(gc) < 34:
+                gc.append(0)
             orig = _find_closest_orig(original_coords, gc[4])
             if orig:
                 if gc[3] == 0:
                     gc[3] = orig[3]
-                gc[5] = orig[5]
-                gc[6] = orig[6]
+                for i in range(5, len(orig)):
+                    gc[i] = orig[i]
+
+        # Overlay live nav telemetry from the CSV log onto the GPX track so the
+        # extended data (attitude, RC input, switches, flight mode, battery, LQ,
+        # RSSI2, etc.) is preserved instead of being lost on import.
+        try:
+            csv_points = parse_log(LOG_DIR / filename)
+        except Exception:
+            csv_points = []
+        if csv_points:
+            gpx_coords, _ = merge_nav({"coordinates": gpx_coords}, csv_points)
 
         if len(gpx_coords) >= 2:
             from analyzer import haversine_km
@@ -634,11 +682,13 @@ async def api_export(request: Request, filename: str, format: str = "gpx"):
         return HTMLResponse("\n".join(lines), media_type="application/vnd.google-earth.kml+xml",
                             headers={"Content-Disposition": content_disp})
     else:
+        from datetime import timezone as _tz
         lines = ['<?xml version="1.0" encoding="UTF-8"?>',
                  '<gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1">',
                  f'  <trk><name>{safe_name}</name><trkseg>']
         for c in coords:
-            lines.append(f'    <trkpt lat="{c[0]}" lon="{c[1]}"><ele>{c[2]}</ele><time>{c[4]}</time></trkpt>')
+            t = datetime.fromtimestamp(c[4], tz=_tz.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if c[4] else ""
+            lines.append(f'    <trkpt lat="{c[0]}" lon="{c[1]}"><ele>{c[2]}</ele><time>{t}</time></trkpt>')
         lines.append('  </trkseg></trk></gpx>')
         content_disp = f'attachment; filename="{safe_name}.gpx"'
         return HTMLResponse("\n".join(lines), media_type="application/gpx+xml",
@@ -689,6 +739,29 @@ def merge_nav(flight: dict, points: list) -> tuple[list, int]:
     return updated, matched
 
 
+def _detect_events_for_track(points, coords) -> list[dict]:
+    """Detect events from raw points, then remap each event index onto the
+    stored coordinate array (which may differ from the CSV points, e.g. for
+    GPX-imported tracks) by nearest timestamp."""
+    import bisect
+    events = detect_events(points)
+    if not coords:
+        return events
+    tss = [c[4] for c in coords]
+
+    def _idx(ts):
+        i = bisect.bisect_left(tss, ts)
+        if i >= len(tss):
+            return len(tss) - 1
+        if i == 0:
+            return 0
+        return i if ts - tss[i - 1] > tss[i] - ts else i - 1
+
+    for e in events:
+        e["i"] = _idx(e.get("ts", 0))
+    return events
+
+
 def sync_all_flights_from_csv() -> list:
     """Re-analyze every flight that still has a CSV on disk with full-resolution
     coordinates and all metrics, then recompute derived statistics. Runs at
@@ -707,10 +780,13 @@ def sync_all_flights_from_csv() -> list:
         except Exception:
             continue
         if flight.get("track_source") == "gpx":
-            # Keep the GPX track, just refresh nav telemetry on top of it.
+            # Keep the GPX track, refresh nav telemetry on top of it and
+            # recompute events (acro/incident detection) from the CSV.
             new_coords, matched = merge_nav(flight, points)
             if not matched:
                 continue
+            events = _detect_events_for_track(points, new_coords)
+            update_flight_events(key, events)
             update_flight_track(key, new_coords, {
                 "distance_km": flight.get("distance_km", 0),
                 "duration_s": flight.get("duration_s", 0),
@@ -750,6 +826,8 @@ async def api_rescan_nav(filename: str, request: Request):
         return JSONResponse({"error": f"failed to parse CSV: {e}"}, status_code=400)
     updated, matched = merge_nav(flight, points)
     flight["coordinates"] = updated
+    events = _detect_events_for_track(points, updated)
+    update_flight_events(filename, events)
     update_flight_track(filename, updated, {
         "distance_km": flight.get("distance_km", 0),
         "duration_s": flight.get("duration_s", 0),

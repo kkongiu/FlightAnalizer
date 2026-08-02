@@ -199,6 +199,12 @@ def delete_flight(filename: str):
         conn.execute("DELETE FROM flights WHERE filename = ?", (filename,))
 
 
+def update_flight_events(filename: str, events: list):
+    with _get_conn() as conn:
+        conn.execute("UPDATE flights SET events = ? WHERE filename = ?",
+                     (json.dumps(events), filename))
+
+
 def rename_flight(old_filename: str, new_filename: str) -> bool:
     with _get_conn() as conn:
         cur = conn.execute("UPDATE flights SET filename = ? WHERE filename = ?", (new_filename, old_filename))

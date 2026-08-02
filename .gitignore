@@ -4,6 +4,8 @@ venv/
 data/flights.db
 data/.session_secret
 data/vehicle_photos/
+data/geocache.json
+flight.png
 *.csv
 .env
 server.log

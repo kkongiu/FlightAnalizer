@@ -1,6 +1,7 @@
 import math
 import statistics
 from models import TelemetryPoint, FlightSummary
+from maneuvers import detect_acros, detect_incidents
 
 
 def haversine_km(lat1, lon1, lat2, lon2):
@@ -10,6 +11,39 @@ def haversine_km(lat1, lon1, lat2, lon2):
     a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return R * c
+
+
+def detect_events(points: list[TelemetryPoint]) -> list[dict]:
+    """Detect takeoff/landing/signal-loss/mode-change events plus acrobatic
+    maneuvers and possible incidents from the raw telemetry points."""
+    events = []
+    was_on_ground = True
+    prev_mode = points[0].flight_mode
+    alt_threshold = 3.0
+
+    for i, p in enumerate(points):
+        # Takeoff: ground -> airborne
+        if was_on_ground and p.alt > alt_threshold and p.gspd > 2:
+            events.append({"type": "takeoff", "ts": p.timestamp, "i": i})
+            was_on_ground = False
+        # Landing: airborne -> ground
+        if not was_on_ground and p.alt < 1.5 and p.gspd < 1:
+            events.append({"type": "landing", "ts": p.timestamp, "i": i})
+            was_on_ground = True
+        # Signal loss: low RSSI + !ERR
+        if p.rssi_1 < -90 and p.rssi_1 != 0 and p.flight_mode == "!ERR":
+            if not events or events[-1]["type"] != "signal_loss" or p.timestamp - events[-1]["ts"] > 3:
+                events.append({"type": "signal_loss", "ts": p.timestamp, "i": i})
+        # Flight mode change
+        if p.flight_mode != prev_mode:
+            events.append({"type": "mode_change", "ts": p.timestamp, "i": i, "mode": p.flight_mode})
+            prev_mode = p.flight_mode
+
+    # Acrobatic maneuvers and possible incidents
+    events.extend(detect_acros(points))
+    events.extend(detect_incidents(points, events))
+    events.sort(key=lambda e: e.get("ts", 0))
+    return events
 
 
 def analyze(filename: str, points: list[TelemetryPoint]) -> FlightSummary:
@@ -86,28 +120,7 @@ def analyze(filename: str, points: list[TelemetryPoint]) -> FlightSummary:
         vibration_score = 0
 
     # Event detection
-    events = []
-    was_on_ground = True
-    prev_mode = points[0].flight_mode
-    alt_threshold = 3.0
-
-    for i, p in enumerate(points):
-        # Takeoff: ground -> airborne
-        if was_on_ground and p.alt > alt_threshold and p.gspd > 2:
-            events.append({"type": "takeoff", "ts": p.timestamp, "i": i})
-            was_on_ground = False
-        # Landing: airborne -> ground
-        if not was_on_ground and p.alt < 1.5 and p.gspd < 1:
-            events.append({"type": "landing", "ts": p.timestamp, "i": i})
-            was_on_ground = True
-        # Signal loss: low RSSI + !ERR
-        if p.rssi_1 < -90 and p.rssi_1 != 0 and p.flight_mode == "!ERR":
-            if not events or events[-1]["type"] != "signal_loss" or p.timestamp - events[-1]["ts"] > 3:
-                events.append({"type": "signal_loss", "ts": p.timestamp, "i": i})
-        # Flight mode change
-        if p.flight_mode != prev_mode:
-            events.append({"type": "mode_change", "ts": p.timestamp, "i": i, "mode": p.flight_mode})
-            prev_mode = p.flight_mode
+    events = detect_events(points)
 
     coords = [[p.lat, p.lon, p.alt, p.gspd, p.timestamp, p.rssi_1, p.rxbt,
                p.pitch, p.roll, p.yaw, p.rud, p.ele, p.thr, p.ail,

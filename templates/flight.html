@@ -444,7 +444,7 @@ if (events.length) {
     events.forEach(e => {
         const badge = document.createElement('span');
         badge.className = 'event-badge ' + e.type;
-        const label = e.type === 'takeoff' ? '✈ Takeoff' : e.type === 'landing' ? '✈ Landing' : e.type === 'signal_loss' ? '⚠ Signal Loss' : '⇄ ' + e.mode;
+        const label = e.type === 'takeoff' ? '✈ Takeoff' : e.type === 'landing' ? '✈ Landing' : e.type === 'signal_loss' ? '⚠ Signal Loss' : e.type === 'acro' ? '🔄 ' + (e.kind === 'loop' ? 'Loop' : 'Flip/Roll') : e.type === 'incident' ? '💥 Incident' : '⇄ ' + e.mode;
         badge.textContent = fmtTs(e.ts) + ' ' + label;
         badge.title = 'Click to seek';
         badge.addEventListener('click', () => {
