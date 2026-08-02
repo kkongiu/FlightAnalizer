@@ -133,6 +133,11 @@
         </div>
     </div>
 
+    <div class="events-section" id="eventsSection" style="display:none;">
+        <h3>Flight Events</h3>
+        <div class="events-timeline" id="eventsTimeline"></div>
+    </div>
+
     <div class="stats-grid">
         <div class="stat-card">
             <div class="stat-row"><span class="stat-label">Duration</span><span class="stat-value">{{ flight.duration_s | fmt_duration }}</span></div>
@@ -179,11 +184,6 @@
             <span class="stat-label">Flight Modes</span>
             <span class="stat-value" style="font-size:0.75rem;">{{ flight.flight_modes | dict2str }}</span>
         </div>
-    </div>
-
-    <div class="events-section" id="eventsSection" style="display:none;">
-        <h3>Flight Events</h3>
-        <div class="events-timeline" id="eventsTimeline"></div>
     </div>
 
     <div class="notes-section">

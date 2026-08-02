@@ -16,6 +16,8 @@
             <option value="">All tags</option>
             <option value="__untagged">Untagged</option>
         </select>
+        <input type="text" id="tagSearch" list="tagSearchList" placeholder="Search tags (comma separated)..." style="flex:1;min-width:150px;">
+        <datalist id="tagSearchList"></datalist>
         <div class="filter-group">
             <label>Dist (km)</label>
             <select id="fDistOp">
@@ -95,13 +97,17 @@ let currentPage = 1;
 const allRows = Array.from(document.querySelectorAll('.flight-row'));
 const selected = new Set();
 
-// Load tags for filter dropdown
+// Load tags for filter dropdown and search suggestions
 fetch('/flight/api/tags').then(r => r.json()).then(data => {
     const sel = document.getElementById('tagFilter');
+    const dl = document.getElementById('tagSearchList');
     (data.tags || []).forEach(t => {
         const opt = document.createElement('option');
         opt.value = t; opt.textContent = t;
         sel.appendChild(opt);
+        const dopt = document.createElement('option');
+        dopt.value = t;
+        dl.appendChild(dopt);
     });
 });
 
@@ -113,6 +119,8 @@ function numVal(id) {
 function filterRows() {
     const q = document.getElementById('searchInput').value.toLowerCase();
     const tagFilter = document.getElementById('tagFilter').value;
+    const tagQuery = document.getElementById('tagSearch').value.toLowerCase()
+        .split(',').map(s => s.trim()).filter(Boolean);
     const distV = numVal('fDistVal'), distOp = document.getElementById('fDistOp').value;
     const altV = numVal('fAltVal'), altOp = document.getElementById('fAltOp').value;
     const durV = numVal('fDurVal'), durOp = document.getElementById('fDurOp').value;
@@ -120,10 +128,14 @@ function filterRows() {
         const matchSearch = r.getAttribute('data-filename').toLowerCase().includes(q)
             || r.getAttribute('data-date').includes(q);
         if (!matchSearch) return false;
+        const rowTags = (r.getAttribute('data-tags') || '').split(',').filter(Boolean);
+        const rowTagsLower = rowTags.map(t => t.toLowerCase());
         if (tagFilter) {
-            const rowTags = (r.getAttribute('data-tags') || '').split(',').filter(Boolean);
             if (tagFilter === '__untagged') { if (rowTags.length !== 0) return false; }
             else if (!rowTags.includes(tagFilter)) return false;
+        }
+        if (tagQuery.length) {
+            if (!tagQuery.every(t => rowTagsLower.includes(t))) return false;
         }
         const matches = (value, op, target) => target === null || (op === 'lte' ? value <= target : value >= target);
         const dist = parseFloat(r.getAttribute('data-distance'));
@@ -183,9 +195,11 @@ function renderPage() {
 ['tagFilter', 'fDistOp', 'fAltOp', 'fDurOp'].forEach(id => {
     document.getElementById(id).addEventListener('change', () => { currentPage = 1; renderPage(); });
 });
+document.getElementById('tagSearch').addEventListener('input', () => { currentPage = 1; renderPage(); });
 document.getElementById('clearFiltersBtn').addEventListener('click', () => {
     document.getElementById('searchInput').value = '';
     document.getElementById('tagFilter').value = '';
+    document.getElementById('tagSearch').value = '';
     ['fDistVal', 'fAltVal', 'fDurVal'].forEach(id => document.getElementById(id).value = '');
     currentPage = 1;
     renderPage();
