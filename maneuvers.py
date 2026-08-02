@@ -153,6 +153,7 @@ def detect_incidents(points, existing_events=None) -> list[dict]:
         if run_len >= INCIDENT_MIN_SAMPLES and mean_vspd <= INCIDENT_MEAN_VSPD_MS and drop >= INCIDENT_MIN_DROP_M:
             end_alt = alts[j]
             hit_ground = end_alt <= ground_alt + INCIDENT_GROUND_TOL_M
+            deep_below = end_alt < ground_alt - INCIDENT_GROUND_TOL_M
 
             stop = False
             if median(gspds[i:j + 1]) > 20:
@@ -164,7 +165,10 @@ def detect_incidents(points, existing_events=None) -> list[dict]:
             fs = any(modes[m] == "!ERR" or rssis[m] <= -100 for m in range(i, j + 1))
             near_landing = any(abs(ts[j] - lt) <= INCIDENT_LANDING_SKIP_S for lt in landing_ts)
 
-            if (hit_ground or stop or fs) and not near_landing:
+            # A run ending well below ground level can't be a landing: the GPS
+            # altitude going metres under the recorded ground is an impact, so it
+            # must not be suppressed by the near-landing heuristic.
+            if (hit_ground or stop or fs or deep_below) and (not near_landing or deep_below):
                 events.append({
                     "type": "incident",
                     "ts": ts[j],

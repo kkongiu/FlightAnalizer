@@ -41,7 +41,13 @@ def detect_events(points: list[TelemetryPoint]) -> list[dict]:
 
     # Acrobatic maneuvers and possible incidents
     events.extend(detect_acros(points))
-    events.extend(detect_incidents(points, events))
+    incidents = detect_incidents(points, events)
+    events.extend(incidents)
+    if incidents:
+        # A "landing" right after an impact is just the crash tail: drop it so
+        # the incident isn't contradicted by a normal landing badge.
+        events = [e for e in events
+                  if not (e["type"] == "landing" and any(abs(e["ts"] - inc["ts"]) <= 15 for inc in incidents))]
     events.sort(key=lambda e: e.get("ts", 0))
     return events
 
