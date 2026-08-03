@@ -43,6 +43,14 @@ def _acro_event(pitches, rolls, ts, start, end):
     if peak_pitch < ACRO_MIN_PITCH_RAD and peak_roll < ACRO_MIN_ROLL_RAD:
         return None
     kind = "loop" if peak_pitch >= ACRO_MIN_PITCH_RAD and peak_roll < ACRO_MIN_ROLL_RAD else "flip_roll"
+    peak_rotation = 0.0
+    lo = max(start - 1, 1)
+    hi = min(end + 2, len(ts))
+    for k in range(lo, hi):
+        dt = ts[k] - ts[k - 1]
+        if dt > 0:
+            rate = (abs(pitches[k] - pitches[k - 1]) + abs(rolls[k] - rolls[k - 1])) / dt
+            peak_rotation = max(peak_rotation, rate)
     return {
         "type": "acro",
         "kind": kind,
@@ -52,6 +60,7 @@ def _acro_event(pitches, rolls, ts, start, end):
         "dur": round(ts[end] - ts[start], 1),
         "peak_pitch": round(peak_pitch, 2),
         "peak_roll": round(peak_roll, 2),
+        "peak_rotation": round(peak_rotation, 2),
     }
 
 

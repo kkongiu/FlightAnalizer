@@ -85,6 +85,11 @@ def init_db():
             conn.execute("ALTER TABLE flights ADD COLUMN track_source TEXT DEFAULT 'csv'")
         except Exception:
             pass
+        for col, typ in [('max_g', 'REAL DEFAULT 0'), ('avg_g', 'REAL DEFAULT 0')]:
+            try:
+                conn.execute(f"ALTER TABLE flights ADD COLUMN {col} {typ}")
+            except Exception:
+                pass
         conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -130,13 +135,14 @@ def save_flight(summary: FlightSummary):
             INSERT INTO flights
             (filename, date, start_time, duration_s, distance_km,
              max_alt_m, min_alt_m, avg_alt_m, max_speed_kmh, avg_speed_kmh, max_vspd_ms,
+             max_g, avg_g,
              max_rssi_db, min_rssi_db, avg_rssi_db, min_rqly, avg_rqly,
              battery_start_v, battery_end_v, battery_min_v,
              battery_start_pct, battery_end_pct, battery_consumed_mah,
              max_current_a, txbat_v, flight_modes, sats_max,
              home_distance_km, glide_ratio, efficiency_km_per_mah, vibration_score, events,
              coordinates)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(filename) DO UPDATE SET
                 date = excluded.date,
                 start_time = excluded.start_time,
@@ -148,6 +154,8 @@ def save_flight(summary: FlightSummary):
                 max_speed_kmh = excluded.max_speed_kmh,
                 avg_speed_kmh = excluded.avg_speed_kmh,
                 max_vspd_ms = excluded.max_vspd_ms,
+                max_g = excluded.max_g,
+                avg_g = excluded.avg_g,
                 max_rssi_db = excluded.max_rssi_db,
                 min_rssi_db = excluded.min_rssi_db,
                 avg_rssi_db = excluded.avg_rssi_db,
@@ -172,6 +180,7 @@ def save_flight(summary: FlightSummary):
         """, (
             summary.filename, summary.date, summary.start_time, summary.duration_s, summary.distance_km,
             summary.max_alt_m, summary.min_alt_m, summary.avg_alt_m, summary.max_speed_kmh, summary.avg_speed_kmh, summary.max_vspd_ms,
+            summary.max_g, summary.avg_g,
             summary.max_rssi_db, summary.min_rssi_db, summary.avg_rssi_db, summary.min_rqly, summary.avg_rqly,
             summary.battery_start_v, summary.battery_end_v, summary.battery_min_v,
             summary.battery_start_pct, summary.battery_end_pct, summary.battery_consumed_mah,
@@ -227,7 +236,9 @@ def update_flight_track(filename: str, coordinates: list, stats: dict):
                 min_alt_m = ?,
                 avg_alt_m = ?,
                 max_speed_kmh = ?,
-                avg_speed_kmh = ?
+                avg_speed_kmh = ?,
+                max_g = ?,
+                avg_g = ?
             WHERE filename = ?
         """, (
             json.dumps(coordinates),
@@ -238,6 +249,8 @@ def update_flight_track(filename: str, coordinates: list, stats: dict):
             stats["avg_alt_m"],
             stats["max_speed_kmh"],
             stats["avg_speed_kmh"],
+            stats.get("max_g", 0),
+            stats.get("avg_g", 0),
             filename,
         ))
 

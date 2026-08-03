@@ -69,6 +69,8 @@ class FlightSummary:
     txbat_v: float
     flight_modes: dict
     sats_max: int
+    max_g: float = 0.0
+    avg_g: float = 0.0
     home_distance_km: float = 0.0
     glide_ratio: float = 0.0
     efficiency_km_per_mah: float = 0.0

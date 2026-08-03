@@ -13,6 +13,24 @@ def haversine_km(lat1, lon1, lat2, lon2):
     return R * c
 
 
+def compute_load_factor(points: list[TelemetryPoint]) -> list[float]:
+    """Per-point load factor G = 1/cos(roll) from the bank angle.
+
+    For a coordinated banked turn the aircraft must produce thrust = g/cos(roll),
+    so 1/cos(roll) is the load factor (G). No derivatives are involved, so it is
+    robust at the ~2 Hz EdgeTX sample rate. Near-vertical bank (|cos| < 0.1) is
+    invalid (G diverges) and is reported as 0.
+    """
+    gs = []
+    for p in points:
+        c = math.cos(p.roll)
+        if c > 0.1:
+            gs.append(round(min(1.0 / c, 10.0), 2))
+        else:
+            gs.append(0.0)
+    return gs
+
+
 def detect_events(points: list[TelemetryPoint]) -> list[dict]:
     """Detect takeoff/landing/signal-loss/mode-change events plus acrobatic
     maneuvers and possible incidents from the raw telemetry points."""
@@ -128,11 +146,17 @@ def analyze(filename: str, points: list[TelemetryPoint]) -> FlightSummary:
     # Event detection
     events = detect_events(points)
 
+    gforce = compute_load_factor(points)
+    valid_g = [g for g in gforce if g > 0]
+    max_g = round(max(valid_g), 2) if valid_g else 0.0
+    avg_g = round(sum(valid_g) / len(valid_g), 2) if valid_g else 0.0
+
     coords = [[p.lat, p.lon, p.alt, p.gspd, p.timestamp, p.rssi_1, p.rxbt,
                p.pitch, p.roll, p.yaw, p.rud, p.ele, p.thr, p.ail,
                p.vspd, p.heading,
                p.sa, p.sb, p.sc, p.sd, p.se, p.lsw, p.p1, p.flight_mode,
-               p.rssi_2, p.rsnr, p.trss, p.tqly, p.tsnr, p.curr, p.capa, p.bat_pct, p.txbat, p.rqly] for p in points]
+               p.rssi_2, p.rsnr, p.trss, p.tqly, p.tsnr, p.curr, p.capa, p.bat_pct, p.txbat, p.rqly, g] 
+              for p, g in zip(points, gforce)]
 
     return FlightSummary(
         filename=filename,
@@ -146,6 +170,8 @@ def analyze(filename: str, points: list[TelemetryPoint]) -> FlightSummary:
         max_speed_kmh=round(max(speeds), 1),
         avg_speed_kmh=round(sum(speeds) / len(speeds), 1),
         max_vspd_ms=round(max(vspds), 2) if vspds else 0,
+        max_g=max_g,
+        avg_g=avg_g,
         max_rssi_db=max(rssis) if rssis else 0,
         min_rssi_db=min(rssis) if rssis else 0,
         avg_rssi_db=round(sum(rssis) / len(rssis), 1) if rssis else 0,

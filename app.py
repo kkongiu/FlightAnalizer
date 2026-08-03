@@ -1,6 +1,7 @@
 import os
 import re
 import secrets
+import math
 from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
@@ -737,8 +738,16 @@ def merge_nav(flight: dict, points: list) -> tuple[list, int]:
                 c[7], c[8], c[9], c[10], c[11], c[12], c[13], c[14], c[15], c[16], c[17], c[18], c[19], c[20], c[21], c[22], c[23], c[24], c[25], c[26], c[27], c[28], c[29], c[30], c[31], c[32], c[33] = nav
             else:
                 c = list(c) + list(nav)
+            cos_roll = math.cos(c[8])
+            g_val = round(min(1.0 / cos_roll, 10.0), 2) if cos_roll > 0.1 else 0.0
+            if len(c) > 34:
+                c[34] = g_val
+            else:
+                c = list(c) + [g_val]
         elif len(c) < 34:
             c = list(c) + [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        if len(c) < 35:
+            c = list(c) + [0.0]
         updated.append(c)
     return updated, matched
 
@@ -791,6 +800,7 @@ def sync_all_flights_from_csv() -> list:
                 continue
             events = _detect_events_for_track(points, new_coords)
             update_flight_events(key, events)
+            gs = [c[34] for c in new_coords if len(c) > 34 and c[34] > 0]
             update_flight_track(key, new_coords, {
                 "distance_km": flight.get("distance_km", 0),
                 "duration_s": flight.get("duration_s", 0),
@@ -799,6 +809,8 @@ def sync_all_flights_from_csv() -> list:
                 "avg_alt_m": flight.get("avg_alt_m", 0),
                 "max_speed_kmh": flight.get("max_speed_kmh", 0),
                 "avg_speed_kmh": flight.get("avg_speed_kmh", 0),
+                "max_g": round(max(gs), 2) if gs else 0,
+                "avg_g": round(sum(gs) / len(gs), 2) if gs else 0,
             })
             updated.append(key)
             continue
@@ -832,6 +844,7 @@ async def api_rescan_nav(filename: str, request: Request):
     flight["coordinates"] = updated
     events = _detect_events_for_track(points, updated)
     update_flight_events(filename, events)
+    gs = [c[34] for c in updated if len(c) > 34 and c[34] > 0]
     update_flight_track(filename, updated, {
         "distance_km": flight.get("distance_km", 0),
         "duration_s": flight.get("duration_s", 0),
@@ -840,6 +853,8 @@ async def api_rescan_nav(filename: str, request: Request):
         "avg_alt_m": flight.get("avg_alt_m", 0),
         "max_speed_kmh": flight.get("max_speed_kmh", 0),
         "avg_speed_kmh": flight.get("avg_speed_kmh", 0),
+        "max_g": round(max(gs), 2) if gs else 0,
+        "avg_g": round(sum(gs) / len(gs), 2) if gs else 0,
     })
     return {"ok": True, "matched": matched, "total": len(updated)}
 

@@ -129,15 +129,18 @@
             <div class="chart-container"><canvas id="headingChart"></canvas></div>
         </div>
         <div class="chart-row">
+            <div class="chart-container"><canvas id="gforceChart"></canvas></div>
             <div class="chart-container"><canvas id="linkQualityChart"></canvas></div>
+        </div>
+        <div class="chart-row">
             <div class="chart-container"><canvas id="currentChart"></canvas></div>
-        </div>
-        <div class="chart-row">
             <div class="chart-container"><canvas id="capacityChart"></canvas></div>
-            <div class="chart-container"><canvas id="txbatChart"></canvas></div>
         </div>
         <div class="chart-row">
+            <div class="chart-container"><canvas id="txbatChart"></canvas></div>
             <div class="chart-container"><canvas id="thrCurrChart"></canvas></div>
+        </div>
+        <div class="chart-row">
             <div class="chart-container"><canvas id="stickResponseChart"></canvas></div>
         </div>
     </div>
@@ -156,6 +159,10 @@
             <div class="stat-row"><span class="stat-label">Max Speed</span><span class="stat-value">{{ "%.0f"|format(flight.max_speed_kmh) }}km/h</span></div>
             <div class="stat-row"><span class="stat-label">Avg Speed</span><span class="stat-value">{{ "%.0f"|format(flight.avg_speed_kmh) }}km/h</span></div>
             <div class="stat-row"><span class="stat-label">Max VSpeed</span><span class="stat-value">{{ "%.1f"|format(flight.max_vspd_ms) }}m/s</span></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-row"><span class="stat-label">Max G</span><span class="stat-value">{{ "%.2f"|format(flight.max_g) }}</span></div>
+            <div class="stat-row"><span class="stat-label">Avg G</span><span class="stat-value">{{ "%.2f"|format(flight.avg_g) }}</span></div>
         </div>
         <div class="stat-card">
             <div class="stat-row"><span class="stat-label">Home Dist</span><span class="stat-value">{{ "%.2f"|format(flight.home_distance_km) }}km</span></div>
@@ -486,6 +493,7 @@ if (events.length) {
             add('LQ', (c[33] || 0) + '%');
             add('Battery', (c[6] || 0).toFixed(2) + ' V (' + (c[31] || 0).toFixed(0) + '%)');
             add('Current', (c[29] || 0).toFixed(1) + ' A');
+            add('Load factor', (c.length > 34 ? (c[34] || 0) : 0).toFixed(2) + ' G');
             add('Consumed', (c[30] || 0).toFixed(0) + ' mAh');
             add('Tx battery', (c[32] || 0).toFixed(1) + ' V');
         }
@@ -494,6 +502,7 @@ if (events.length) {
             add('Duration', e.dur + ' s');
             add('Peak pitch', e.peak_pitch + ' rad');
             add('Peak roll', e.peak_roll + ' rad');
+            add('Peak rotation', (e.peak_rotation || 0) + ' rad/s');
         } else if (e.type === 'incident') {
             add('Alt at impact', e.alt + ' m');
             add('Altitude lost', e.drop + ' m');
@@ -612,6 +621,7 @@ const capa = displayCoords.map(c => c.length > 30 ? c[30] : 0);
 const txbat = displayCoords.map(c => c.length > 31 ? c[31] : 0);
 const batPct = displayCoords.map(c => c.length > 32 ? c[32] : 0);
 const rqly = displayCoords.map(c => c.length > 33 ? c[33] : 0);
+const gforce = displayCoords.map(c => c.length > 34 ? c[34] : 0);
 
 // Map
 const map = L.map('map').setView([coords[0][0], coords[0][1]], 16);
@@ -1142,6 +1152,28 @@ new Chart(document.getElementById('headingChart'), {
     }
 });
 
+// Load Factor (G) from bank angle
+new Chart(document.getElementById('gforceChart'), {
+    type: 'line',
+    data: {
+        labels: times.map(fmtTime),
+        datasets: [{
+            label: 'G',
+            data: gforce,
+            borderColor: 'rgb(16, 185, 129)',
+            backgroundColor: 'rgba(16, 185, 129, 0.08)',
+            fill: true,
+            pointRadius: 0,
+        }]
+    },
+    options: {
+        responsive: true,
+        elements: {line: {tension: 0.4, cubicInterpolationMode: 'monotone'}},
+        plugins: {legend: {display: false}, title: {display: true, text: 'Load Factor G (1/cos roll)'}},
+        scales: {x: {ticks: {maxTicksLimit: 8, font: {size: 10}}}, y: {beginAtZero: true, min: 0.5, title: {display: true, text: 'G'}}}
+    }
+});
+
 // Link Quality
 new Chart(document.getElementById('linkQualityChart'), {
     type: 'line',
@@ -1282,7 +1314,7 @@ new Chart(document.getElementById('stickResponseChart'), {
     }
 });
 
-timeCharts = ['altitudeChart', 'speedChart', 'rssiChart', 'batteryChart', 'navChart', 'vspdChart', 'headingChart', 'linkQualityChart', 'currentChart', 'capacityChart', 'txbatChart']
+timeCharts = ['altitudeChart', 'speedChart', 'rssiChart', 'batteryChart', 'navChart', 'vspdChart', 'headingChart', 'gforceChart', 'linkQualityChart', 'currentChart', 'capacityChart', 'txbatChart']
     .map(id => Chart.getChart(document.getElementById(id)))
     .filter(Boolean);
 updateChartCursor(0);
