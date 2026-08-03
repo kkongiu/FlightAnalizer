@@ -149,6 +149,46 @@ sudo certbot --nginx -d your-domain.com
 
 ## Importing Flight Logs
 
+### Logging Telemetry on a RadioMaster Pocket (EdgeTX)
+
+The analyzer reads telemetry CSV logs produced by the radio itself. On a
+RadioMaster Pocket running EdgeTX, the built-in **SD Logs** special function
+writes everything (link quality, GPS, battery, attitude, stick positions) to a
+CSV on the SD card. To enable it:
+
+1. **Make sure telemetry arrives** — the sensors (RSSI, LQ, GPS, altitude,
+   speed, attitude Pitch/Roll/Yaw) must be visible on the radio:
+
+   - **ExpressLRS / CRSF**: in Betaflight go to **Receiver** and enable
+     **Telemetry** (CRSF). The GPS and attitude data are sent by the flight
+     controller through the receiver.
+   - On the radio: **MDL → Telemetry → Discover new sensors** (restart the
+     radio if sensors are still missing).
+
+2. **Enable logging** — open **MDL → Special Functions**, press **+** and set:
+
+   | Option     | Value                                                        |
+   |------------|--------------------------------------------------------------|
+   | **Trigger**| Your arm switch (recommended), `ON` (always) or `TELE` (when a receiver is connected) |
+   | **Function**| `SD Logs`                                                    |
+   | **Value**  | `0.5s` — the logging interval (~2 Hz, matching the attitude sensors) |
+   | **Enable** | **ON** (the #1 reason logging does not start is a disabled function) |
+
+3. **Where the logs go** — on the SD card under `LOGS/`, named
+   `<model>-<date>-<time>.csv`.
+
+4. **Import into the app** — copy the CSV to the app folder and use
+   **Scan Folder**, or upload it via **Import CSV**. Files can also be
+   transferred with the USB cable (SD card mass storage).
+
+Tips:
+
+- EdgeTX stops logging when the SD card has **less than 50 MB free**.
+- Unwanted sensors can be excluded: **Telemetry page → Edit sensor → uncheck
+  `Logs`**.
+- With ExpressLRS, a higher *telemetry ratio* gives denser logs; changes apply
+  after a radio power cycle.
+
 ### CSV Format
 
 The parser expects EdgeTX / POCKET telemetry CSV files with the following columns (case-insensitive):

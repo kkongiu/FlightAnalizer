@@ -37,20 +37,24 @@ def _median_filter(values, size=5):
     return out
 
 
-def _acro_event(pitches, rolls, ts, start, end):
+def _peak_rotation(pitches, rolls, ts, lo, hi):
+    """Max |d(pitch)|+|d(roll)| per second inside index range [lo, hi)."""
+    peak = 0.0
+    n = len(ts)
+    for k in range(max(lo, 1), min(hi, n)):
+        dt = ts[k] - ts[k - 1]
+        if dt > 0:
+            rate = (abs(pitches[k] - pitches[k - 1]) + abs(rolls[k] - rolls[k - 1])) / dt
+            peak = max(peak, rate)
+    return peak
+
+
+def _acro_event(pitches, rolls, ts, start, end, peak_rotation):
     peak_pitch = max(abs(x) for x in pitches[start:end + 1])
     peak_roll = max(abs(x) for x in rolls[start:end + 1])
     if peak_pitch < ACRO_MIN_PITCH_RAD and peak_roll < ACRO_MIN_ROLL_RAD:
         return None
     kind = "loop" if peak_pitch >= ACRO_MIN_PITCH_RAD and peak_roll < ACRO_MIN_ROLL_RAD else "flip_roll"
-    peak_rotation = 0.0
-    lo = max(start - 1, 1)
-    hi = min(end + 2, len(ts))
-    for k in range(lo, hi):
-        dt = ts[k] - ts[k - 1]
-        if dt > 0:
-            rate = (abs(pitches[k] - pitches[k - 1]) + abs(rolls[k] - rolls[k - 1])) / dt
-            peak_rotation = max(peak_rotation, rate)
     return {
         "type": "acro",
         "kind": kind,
@@ -114,13 +118,17 @@ def detect_acros(points) -> list[dict]:
                 start = i
             continue
         if start is not None:
+            # the rotation that triggered these hits lies within the window
+            # ending at `start`; measure the peak rate over that whole span so
+            # the fast entry transition into the maneuver is not missed
+            peak_rot = _peak_rotation(pitches, rolls, ts, max(0, start - window), i)
             if i - start > window:
                 for s in range(start, i, window):
-                    ev = _acro_event(pitches, rolls, ts, s, min(s + window, i) - 1)
+                    ev = _acro_event(pitches, rolls, ts, s, min(s + window, i) - 1, peak_rot)
                     if ev:
                         events.append(ev)
             else:
-                ev = _acro_event(pitches, rolls, ts, start, i - 1)
+                ev = _acro_event(pitches, rolls, ts, start, i - 1, peak_rot)
                 if ev:
                     events.append(ev)
             start = None
