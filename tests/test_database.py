@@ -109,3 +109,9 @@ def test_migration_adds_g_columns(monkeypatch, tmp_path):
     cols = [r[1] for r in sqlite3.connect(db_file).execute("PRAGMA table_info(flights)")]
     assert "max_g" in cols
     assert "avg_g" in cols
+
+
+def test_connections_use_wal_and_busy_timeout(tmp_db):
+    with database._get_conn() as conn:
+        assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+        assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == 5000

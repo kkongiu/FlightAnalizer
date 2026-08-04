@@ -1,10 +1,8 @@
 __pycache__/
 venv/
 *.pyc
-data/flights.db
-data/.session_secret
-data/vehicle_photos/
-data/geocache.json
+data/
+!data/.gitkeep
 flight.png
 *.csv
 .env
