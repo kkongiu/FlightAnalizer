@@ -28,6 +28,7 @@
         <div style="margin-top:0.5rem;display:flex;gap:0.3rem;flex-wrap:wrap;">
             <a class="btn-primary" href="/flight/api/export/{{ flight.filename }}?format=gpx" style="text-decoration:none;font-size:0.7rem;padding:0.25rem 0.6rem;">Export GPX</a>
             <a class="btn-primary" href="/flight/api/export/{{ flight.filename }}?format=kml" style="text-decoration:none;font-size:0.7rem;padding:0.25rem 0.6rem;">Export KML</a>
+            <a class="btn-primary" href="/flight/mission/{{ flight.filename }}" style="text-decoration:none;font-size:0.7rem;padding:0.25rem 0.6rem;">Missione INAV</a>
             <label class="btn-primary" for="gpxFileInput" style="font-size:0.7rem;padding:0.25rem 0.6rem;cursor:pointer;" id="importGpxLabel">Import GPX</label>
             <input type="file" id="gpxFileInput" accept=".gpx" style="display:none;">
             <button class="btn-primary" id="rescanNavBtn" style="font-size:0.7rem;padding:0.25rem 0.6rem;">Rescan Nav</button>

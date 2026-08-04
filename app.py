@@ -27,6 +27,9 @@ from database import (save_flight, get_all_flights, get_flight, delete_flight,
                       update_user, change_password, delete_user, verify_user,
                       recalculate_home_distances, set_flight_track_source)
 import httpx
+from mission import (clean_coords, build_mission_from_params, track_meta,
+                     validate_waypoints, render_mission_xml)
+from fastapi.responses import Response
 
 SECRET_FILE = Path(__file__).parent / "data" / ".session_secret"
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
@@ -701,6 +704,117 @@ async def api_export(request: Request, filename: str, format: str = "gpx"):
 
 
 
+
+
+def _mission_result(body: dict):
+    """Build mission waypoints + XML from a request body.
+
+    Two modes:
+      - explicit: body["waypoints"] is a list of waypoint dicts; the final
+        action (RTH/LAND) is driven by body["final_action"] and re-appended.
+      - params:   body["params"] drives clean -> cut -> simplify -> build
+    Raises ValueError on validation errors."""
+    if body.get("waypoints"):
+        waypoints = [dict(w) for w in body["waypoints"]]
+        final_action = str(body.get("final_action", "NONE")).upper()
+        waypoints = [w for w in waypoints
+                     if str(w.get("action", "WAYPOINT")).upper() not in ("RTH", "LAND")]
+        if not waypoints:
+            raise ValueError("Nessun waypoint nella missione.")
+        if final_action == "RTH":
+            waypoints.append({"action": "RTH", "lat": 0.0, "lon": 0.0, "alt": 0.0,
+                              "p1": 1, "p2": 0, "p3": 0})
+        elif final_action == "LAND":
+            waypoints.append({"action": "LAND", "lat": 0.0, "lon": 0.0, "alt": 0.0,
+                              "p1": 0, "p2": 0, "p3": 0})
+    else:
+        params = body.get("params") or {}
+        filename = params.get("filename", "")
+        flight = get_flight(filename)
+        if not flight:
+            raise ValueError("Volo non trovato")
+        waypoints = build_mission_from_params(flight.get("coordinates", []), params)
+    ok, err = validate_waypoints(waypoints)
+    if not ok:
+        raise ValueError(err)
+    for i, w in enumerate(waypoints, 1):
+        w["no"] = i
+        w["flag"] = 165 if i == len(waypoints) else 0
+    meta = track_meta([[w.get("lat", 0), w.get("lon", 0)] for w in waypoints])
+    return waypoints, render_mission_xml(waypoints, meta)
+
+
+def _mission_flight_options():
+    return [{"filename": f["filename"], "date": f.get("date", ""),
+             "start_time": f.get("start_time", ""),
+             "distance_km": f.get("distance_km", 0),
+             "duration_s": f.get("duration_s", 0)}
+            for f in get_all_flights()]
+
+
+@app.get("/mission", response_class=HTMLResponse)
+async def mission_page(request: Request):
+    redirect = require_auth(request)
+    if redirect:
+        return redirect
+    flights = _mission_flight_options()
+    return templates.TemplateResponse(request, "mission.html", {"flights": flights, "current": None})
+
+
+@app.get("/mission/{filename:path}", response_class=HTMLResponse)
+async def mission_page_flight(request: Request, filename: str):
+    redirect = require_auth(request)
+    if redirect:
+        return redirect
+    flight = get_flight(filename)
+    if not flight:
+        return HTMLResponse("Flight not found", status_code=404)
+    flights = _mission_flight_options()
+    current = {"filename": flight["filename"], "date": flight.get("date", ""),
+               "start_time": flight.get("start_time", "")}
+    return templates.TemplateResponse(request, "mission.html", {"flights": flights, "current": current})
+
+
+@app.post("/api/mission/track")
+async def api_mission_track(request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    body = await request.json()
+    filename = body.get("filename", "")
+    flight = get_flight(filename)
+    if not flight:
+        return JSONResponse({"error": "Volo non trovato"}, status_code=404)
+    coords = clean_coords(flight.get("coordinates", []))
+    return {"filename": filename, "coords": coords}
+
+
+@app.post("/api/mission/preview")
+async def api_mission_preview(request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    body = await request.json()
+    try:
+        waypoints, xml = _mission_result(body)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    return {"waypoints": waypoints, "xml": xml}
+
+
+@app.post("/api/mission/export")
+async def api_mission_export(request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    body = await request.json()
+    try:
+        _waypoints, xml = _mission_result(body)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    name = re.sub(r"[^\w\-.]", "_", str(body.get("name", "mission"))) or "mission"
+    return Response(content=xml, media_type="application/xml",
+                    headers={"Content-Disposition": f'attachment; filename="{name}.mission"'})
 
 
 def merge_nav(flight: dict, points: list) -> tuple[list, int]:
