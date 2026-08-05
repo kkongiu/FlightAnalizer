@@ -179,10 +179,31 @@ document.querySelectorAll('.deleteUserBtn').forEach(btn => {
   btn.addEventListener('click', async () => {
     const tr = btn.closest('tr');
     const name = tr.dataset.username;
-    if (!confirm('Delete user "' + name + '"?')) return;
-    const r = await fetch('/flight/api/users/' + tr.dataset.id, { method: 'DELETE' });
-    if (r.ok) { tr.remove(); }
-    else { const d = await r.json(); alert(d.error || 'Error'); }
+    const first = await fetch('/flight/api/users/' + tr.dataset.id, { method: 'DELETE' });
+    const data = await first.json().catch(() => ({}));
+    if (first.status === 409 && data.confirm && data.counts) {
+      const c = data.counts;
+      const keepBackup = confirm(
+        'Delete user "' + name + '"?\n\n' +
+        'This will permanently remove:\n' +
+        '  - ' + c.flights + ' flights\n' +
+        '  - ' + c.vehicles + ' vehicles\n' +
+        '  - ' + c.tags + ' tags\n\n' +
+        'Create a database backup first?'
+      );
+      if (keepBackup === null) return;
+      const r = await fetch('/flight/api/users/' + tr.dataset.id, {
+        method: 'DELETE',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({confirm: true, backup: keepBackup})
+      });
+      if (r.ok) { tr.remove(); alert('User deleted'); }
+      else { const d = await r.json(); alert(d.error || 'Error'); }
+    } else if (first.ok) {
+      tr.remove();
+    } else {
+      alert(data.error || 'Error');
+    }
   });
 });
 </script>

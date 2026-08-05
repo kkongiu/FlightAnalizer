@@ -71,3 +71,22 @@ def tmp_db(monkeypatch, tmp_path):
     monkeypatch.setattr(database, "DATA_DIR", tmp_path)
     database.init_db()
     return tmp_path / "flights.db"
+
+
+@pytest.fixture
+def client(monkeypatch, tmp_path):
+    """An authenticated-test ready HTTP client against a throwaway database.
+
+    Skips the import-time CSV auto-sync (it would otherwise import the real
+    flight CSVs from the repo root into the throwaway DB)."""
+    monkeypatch.setattr(database, "DB_PATH", tmp_path / "flights.db")
+    monkeypatch.setattr(database, "DATA_DIR", tmp_path)
+    database.init_db()
+    monkeypatch.setenv("FLIGHT_ANALYZER_SKIP_STARTUP_SYNC", "1")
+    import app as app_mod
+    monkeypatch.setattr(app_mod, "LOG_DIR", tmp_path / "logs")
+    (tmp_path / "logs").mkdir(exist_ok=True)
+    from fastapi.testclient import TestClient
+    with TestClient(app_mod.app, base_url="https://testserver") as c:
+        c.app_mod = app_mod
+        yield c

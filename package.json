@@ -1,0 +1,12 @@
+{
+  "name": "pocket-log-analyzer",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build:css": "tailwindcss -i static/tailwind.src.css -o static/tailwind.min.css --minify"
+  },
+  "devDependencies": {
+    "tailwindcss": "^4.0.0",
+    "@tailwindcss/cli": "^4.0.0"
+  }
+}

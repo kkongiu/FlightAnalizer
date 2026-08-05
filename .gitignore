@@ -9,3 +9,5 @@ flight.png
 server.log
 TEST *
 BUGS.md
+node_modules/
+package-lock.json

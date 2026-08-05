@@ -87,3 +87,4 @@ class Vehicle:
     vehicle_type: str
     photo: str = ""
     is_default: bool = False
+    owner_id: Optional[int] = None

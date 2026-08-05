@@ -2,6 +2,7 @@ import os
 import re
 import secrets
 import math
+import json
 from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
@@ -15,6 +16,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from parser import parse_log
 from analyzer import analyze, detect_events
 from geocode import home_coords, reverse_geocode
+import database
 from database import (save_flight, get_all_flights, get_flight, delete_flight,
                       rename_flight, update_notes, update_flight_track,
                       get_vehicles, get_vehicle, get_default_vehicle,
@@ -24,8 +26,9 @@ from database import (save_flight, get_all_flights, get_flight, delete_flight,
                       get_all_tags, set_flight_tags, get_flight_tags,
                       get_battery_health_by_vehicle,
                       create_user, get_user, get_user_by_id, get_all_users,
-                      update_user, change_password, delete_user, verify_user,
-                      recalculate_home_distances, set_flight_track_source)
+                      update_user, change_password, verify_user,
+                      recalculate_home_distances, set_flight_track_source,
+                      count_user_data, delete_user_cascade, backup_database)
 import httpx
 from mission import (clean_coords, build_mission_from_params, track_meta,
                      validate_waypoints, render_mission_xml)
@@ -123,19 +126,35 @@ async def security_headers(request: Request, call_next):
 
 
 def require_auth(request: Request):
-    if not request.session.get("authenticated"):
+    if not request.session.get("authenticated") or not request.session.get("user_id"):
         return RedirectResponse(url="/flight/login", status_code=303)
     return None
 
 
 def require_api_auth(request: Request):
-    if not request.session.get("authenticated"):
+    if not request.session.get("authenticated") or not request.session.get("user_id"):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     return None
 
 
-def get_stats():
-    flights = get_all_flights()
+def _current(request: Request) -> dict:
+    """Return the current user context for data scoping."""
+    is_admin = request.session.get("role") == "admin"
+    return {
+        "user_id": request.session.get("user_id"),
+        "username": request.session.get("username"),
+        "role": request.session.get("role"),
+        "is_admin": is_admin,
+    }
+
+
+def _scope(owner_id, is_admin=False):
+    """(owner_id, is_admin) tuple kept small at call sites."""
+    return owner_id, is_admin
+
+
+def get_stats(owner_id=None, is_admin=False):
+    flights = get_all_flights(owner_id, is_admin)
     total_dist = sum(f.get("distance_km", 0) for f in flights)
     total_dur = sum(f.get("duration_s", 0) for f in flights)
     total_flights = len(flights)
@@ -208,7 +227,7 @@ def get_stats():
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    if request.session.get("authenticated"):
+    if request.session.get("authenticated") and request.session.get("user_id"):
         return RedirectResponse(url="/flight/", status_code=303)
     return templates.TemplateResponse(request, "login.html", {})
 
@@ -221,6 +240,7 @@ async def login(request: Request):
     db_user = verify_user(user, pwd)
     if db_user:
         request.session["authenticated"] = True
+        request.session["user_id"] = db_user["id"]
         request.session["username"] = db_user["username"]
         request.session["role"] = db_user["role"]
         return {"ok": True}
@@ -244,10 +264,11 @@ async def dashboard(request: Request):
     redirect = require_auth(request)
     if redirect:
         return redirect
-    flights = get_all_flights()
-    stats = get_stats()
-    vehicle_stats = get_vehicle_stats()
-    vehicles = get_vehicles()
+    me = _current(request)
+    flights = get_all_flights(me["user_id"], me["is_admin"])
+    stats = get_stats(me["user_id"], me["is_admin"])
+    vehicle_stats = get_vehicle_stats(me["user_id"], me["is_admin"])
+    vehicles = get_vehicles(me["user_id"], me["is_admin"])
     return templates.TemplateResponse(request, "dashboard.html", {
         "flights": flights, "stats": stats, "vehicle_stats": vehicle_stats, "vehicles": vehicles
     })
@@ -258,7 +279,8 @@ async def flight_list(request: Request):
     redirect = require_auth(request)
     if redirect:
         return redirect
-    flights = get_all_flights()
+    me = _current(request)
+    flights = get_all_flights(me["user_id"], me["is_admin"])
     return templates.TemplateResponse(request, "flights.html", {"flights": flights})
 
 
@@ -267,9 +289,10 @@ async def report_page(request: Request):
     redirect = require_auth(request)
     if redirect:
         return redirect
-    flights = get_all_flights()
-    stats = get_stats()
-    vehicle_stats = get_vehicle_stats()
+    me = _current(request)
+    flights = get_all_flights(me["user_id"], me["is_admin"])
+    stats = get_stats(me["user_id"], me["is_admin"])
+    vehicle_stats = get_vehicle_stats(me["user_id"], me["is_admin"])
     return templates.TemplateResponse(request, "report.html", {
         "flights": flights, "stats": stats, "vehicle_stats": vehicle_stats
     })
@@ -280,7 +303,8 @@ async def compare_page(request: Request):
     redirect = require_auth(request)
     if redirect:
         return redirect
-    flights = get_all_flights()
+    me = _current(request)
+    flights = get_all_flights(me["user_id"], me["is_admin"])
     return templates.TemplateResponse(request, "compare.html", {"flights": flights})
 
 
@@ -289,13 +313,14 @@ async def api_compare_coords(request: Request):
     denied = require_api_auth(request)
     if denied:
         return denied
+    me = _current(request)
     files = request.query_params.get("files", "")
     if not files:
         return {"flights": []}
     names = [f.strip() for f in files.split(",") if f.strip()]
     result = []
     for name in names:
-        flight = get_flight(name)
+        flight = get_flight(name, me["user_id"], me["is_admin"])
         if flight:
             result.append({
                 "filename": flight["filename"],
@@ -314,7 +339,8 @@ async def api_tags(request: Request):
     denied = require_api_auth(request)
     if denied:
         return denied
-    return {"tags": get_all_tags()}
+    me = _current(request)
+    return {"tags": get_all_tags(me["user_id"], me["is_admin"])}
 
 
 @app.post("/api/flights/{filename:path}/tags")
@@ -322,9 +348,11 @@ async def api_set_tags(request: Request, filename: str):
     denied = require_api_auth(request)
     if denied:
         return denied
+    me = _current(request)
     body = await request.json()
     tags = body.get("tags", [])
-    set_flight_tags(filename, tags)
+    if not set_flight_tags(filename, tags, me["user_id"], me["is_admin"]):
+        return JSONResponse({"error": "not found"}, status_code=404)
     return {"tags": tags}
 
 
@@ -333,10 +361,11 @@ async def flight_detail(request: Request, filename: str):
     redirect = require_auth(request)
     if redirect:
         return redirect
-    flight = get_flight(filename)
+    me = _current(request)
+    flight = get_flight(filename, me["user_id"], me["is_admin"])
     if not flight:
         return HTMLResponse("Flight not found", status_code=404)
-    flights = get_all_flights()
+    flights = get_all_flights(me["user_id"], me["is_admin"])
     idx = None
     for i, f in enumerate(flights):
         if f["filename"] == filename:
@@ -344,7 +373,7 @@ async def flight_detail(request: Request, filename: str):
             break
     prev_flight = flights[idx + 1]["filename"] if idx is not None and idx + 1 < len(flights) else None
     next_flight = flights[idx - 1]["filename"] if idx is not None and idx - 1 >= 0 else None
-    vehicles = get_vehicles()
+    vehicles = get_vehicles(me["user_id"], me["is_admin"])
     return templates.TemplateResponse(request, "flight.html", {
         "flight": flight, "prev": prev_flight, "next": next_flight, "vehicles": vehicles
     })
@@ -355,10 +384,11 @@ async def scan_logs(request: Request):
     denied = require_api_auth(request)
     if denied:
         return denied
+    me = _current(request)
     imported = []
     for f in sorted(LOG_DIR.glob("*.csv")):
         key = f.name
-        if get_flight(key) is not None:
+        if get_flight(key, me["user_id"], me["is_admin"]) is not None:
             continue
         try:
             points = parse_log(f)
@@ -369,10 +399,10 @@ async def scan_logs(request: Request):
                 f.rename(LOG_DIR / new_name)
                 key = new_name
             summary = analyze(key, points)
-            default_v = get_default_vehicle()
+            default_v = get_default_vehicle(me["user_id"], me["is_admin"])
             if default_v:
                 summary.vehicle_id = default_v.id
-            save_flight(summary)
+            save_flight(summary, me["user_id"])
             imported.append(key)
         except Exception:
             pass
@@ -384,6 +414,7 @@ async def upload_log(request: Request, file: UploadFile = File(...)):
     denied = require_api_auth(request)
     if denied:
         return denied
+    me = _current(request)
     if not file.filename or not file.filename.lower().endswith(".csv"):
         return JSONResponse({"error": "Only CSV files are supported"}, status_code=400)
     safe_name = _safe_filename(file.filename)
@@ -403,10 +434,10 @@ async def upload_log(request: Request, file: UploadFile = File(...)):
             dest.rename(LOG_DIR / new_name)
             safe_name = new_name
         summary = analyze(safe_name, points)
-        default_v = get_default_vehicle()
+        default_v = get_default_vehicle(me["user_id"], me["is_admin"])
         if default_v:
             summary.vehicle_id = default_v.id
-        save_flight(summary)
+        save_flight(summary, me["user_id"])
         return {"imported": safe_name}
     except Exception:
         dest.unlink(missing_ok=True)
@@ -418,6 +449,9 @@ async def reprocess_flights(request: Request):
     denied = require_api_auth(request)
     if denied:
         return denied
+    forbidden = require_admin(request)
+    if forbidden:
+        return forbidden
     results = []
     for f in sorted(LOG_DIR.glob("*.csv")):
         key = f.name
@@ -431,12 +465,12 @@ async def reprocess_flights(request: Request):
                 f.rename(LOG_DIR / new_name)
                 key = new_name
             summary = analyze(key, points)
-            existing = get_flight(key)
+            existing = get_flight(key, is_admin=True)
             if existing:
                 summary.vehicle_id = existing.get("vehicle_id")
-            elif key != old_key and get_flight(old_key) is not None:
-                rename_flight(old_key, key)
-                existing = get_flight(key)
+            elif key != old_key and get_flight(old_key, is_admin=True) is not None:
+                rename_flight(old_key, key, is_admin=True)
+                existing = get_flight(key, is_admin=True)
                 summary.vehicle_id = existing.get("vehicle_id") if existing else None
             save_flight(summary)
             results.append(key)
@@ -450,7 +484,8 @@ async def api_flights(request: Request):
     denied = require_api_auth(request)
     if denied:
         return denied
-    return get_all_flights()
+    me = _current(request)
+    return get_all_flights(me["user_id"], me["is_admin"])
 
 
 @app.get("/api/stats")
@@ -458,7 +493,8 @@ async def api_stats(request: Request):
     denied = require_api_auth(request)
     if denied:
         return denied
-    return get_stats()
+    me = _current(request)
+    return get_stats(me["user_id"], me["is_admin"])
 
 
 @app.put("/api/flights/{filename:path}/notes")
@@ -466,18 +502,19 @@ async def api_save_notes(filename: str, request: Request):
     denied = require_api_auth(request)
     if denied:
         return denied
+    me = _current(request)
     raw = await request.body()
     if not raw:
         return JSONResponse({"error": "empty body"}, status_code=400)
     try:
-        body = __import__("json").loads(raw)
+        body = json.loads(raw)
     except Exception as e:
         return JSONResponse({"error": f"invalid JSON: {e}"}, status_code=400)
     notes = body.get("notes", "")[:5000]
-    flight = get_flight(filename)
+    flight = get_flight(filename, me["user_id"], me["is_admin"])
     if not flight:
         return JSONResponse({"error": "not found"}, status_code=404)
-    update_notes(filename, notes)
+    update_notes(filename, notes, me["user_id"], me["is_admin"])
     return {"ok": True}
 
 
@@ -486,7 +523,8 @@ async def api_import_gpx(filename: str, request: Request, file: UploadFile = Fil
     denied = require_api_auth(request)
     if denied:
         return denied
-    flight = get_flight(filename)
+    me = _current(request)
+    flight = get_flight(filename, me["user_id"], me["is_admin"])
     if not flight:
         return JSONResponse({"error": "Flight not found"}, status_code=404)
     if not file.filename or not file.filename.lower().endswith(".gpx"):
@@ -610,8 +648,8 @@ async def api_import_gpx(filename: str, request: Request, file: UploadFile = Fil
                 "avg_speed_kmh": flight.get("avg_speed_kmh", 0),
             }
 
-        update_flight_track(filename, gpx_coords, stats)
-        set_flight_track_source(filename, "gpx")
+        update_flight_track(filename, gpx_coords, stats, me["user_id"], me["is_admin"])
+        set_flight_track_source(filename, "gpx", me["user_id"], me["is_admin"])
         return {"ok": True, "points": len(gpx_coords), "stats": stats}
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=400)
@@ -622,7 +660,8 @@ async def api_flight(request: Request, filename: str):
     denied = require_api_auth(request)
     if denied:
         return denied
-    flight = get_flight(filename)
+    me = _current(request)
+    flight = get_flight(filename, me["user_id"], me["is_admin"])
     if not flight:
         return JSONResponse({"error": "not found"}, status_code=404)
     return flight
@@ -633,7 +672,10 @@ async def api_delete(request: Request, filename: str):
     denied = require_api_auth(request)
     if denied:
         return denied
-    delete_flight(filename)
+    me = _current(request)
+    if not delete_flight(filename, me["user_id"], me["is_admin"]):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    (LOG_DIR / filename).unlink(missing_ok=True)
     return {"deleted": filename}
 
 
@@ -642,9 +684,11 @@ async def api_assign_vehicle(filename: str, request: Request):
     denied = require_api_auth(request)
     if denied:
         return denied
+    me = _current(request)
     body = await request.json()
     vehicle_id = body.get("vehicle_id")
-    assign_vehicle_to_flight(filename, vehicle_id)
+    if not assign_vehicle_to_flight(filename, vehicle_id, me["user_id"], me["is_admin"]):
+        return JSONResponse({"error": "not found"}, status_code=404)
     return {"ok": True}
 
 
@@ -653,18 +697,19 @@ async def api_rename(request: Request, filename: str):
     denied = require_api_auth(request)
     if denied:
         return denied
+    me = _current(request)
     body = await request.json()
     new_name = body.get("new_name", "").strip()
     if not new_name or "/" in new_name or "\\" in new_name:
         return JSONResponse({"error": "invalid name"}, status_code=400)
-    if get_flight(new_name):
+    if get_flight(new_name, is_admin=True):
         return JSONResponse({"error": "a flight with this name already exists"}, status_code=409)
     old_path = LOG_DIR / filename
     new_path = LOG_DIR / new_name
     if old_path.exists():
         old_path.rename(new_path)
-    if not rename_flight(filename, new_name):
-        return JSONResponse({"error": "rename failed"}, status_code=500)
+    if not rename_flight(filename, new_name, me["user_id"], me["is_admin"]):
+        return JSONResponse({"error": "not found"}, status_code=404)
     return {"filename": new_name}
 
 
@@ -673,7 +718,8 @@ async def api_export(request: Request, filename: str, format: str = "gpx"):
     denied = require_api_auth(request)
     if denied:
         return denied
-    flight = get_flight(filename)
+    me = _current(request)
+    flight = get_flight(filename, me["user_id"], me["is_admin"])
     if not flight:
         return JSONResponse({"error": "not found"}, status_code=404)
     coords = flight.get("coordinates", [])
@@ -706,7 +752,7 @@ async def api_export(request: Request, filename: str, format: str = "gpx"):
 
 
 
-def _mission_result(body: dict):
+def _mission_result(body: dict, owner_id: int | None = None, is_admin: bool = False):
     """Build mission waypoints + XML from a request body.
 
     Two modes:
@@ -730,7 +776,7 @@ def _mission_result(body: dict):
     else:
         params = body.get("params") or {}
         filename = params.get("filename", "")
-        flight = get_flight(filename)
+        flight = get_flight(filename, owner_id, is_admin)
         if not flight:
             raise ValueError("Volo non trovato")
         waypoints = build_mission_from_params(flight.get("coordinates", []), params)
@@ -744,12 +790,12 @@ def _mission_result(body: dict):
     return waypoints, render_mission_xml(waypoints, meta)
 
 
-def _mission_flight_options():
+def _mission_flight_options(owner_id: int | None = None, is_admin: bool = False):
     return [{"filename": f["filename"], "date": f.get("date", ""),
              "start_time": f.get("start_time", ""),
              "distance_km": f.get("distance_km", 0),
              "duration_s": f.get("duration_s", 0)}
-            for f in get_all_flights()]
+            for f in get_all_flights(owner_id, is_admin)]
 
 
 @app.get("/mission", response_class=HTMLResponse)
@@ -757,7 +803,8 @@ async def mission_page(request: Request):
     redirect = require_auth(request)
     if redirect:
         return redirect
-    flights = _mission_flight_options()
+    me = _current(request)
+    flights = _mission_flight_options(me["user_id"], me["is_admin"])
     return templates.TemplateResponse(request, "mission.html", {"flights": flights, "current": None})
 
 
@@ -766,10 +813,11 @@ async def mission_page_flight(request: Request, filename: str):
     redirect = require_auth(request)
     if redirect:
         return redirect
-    flight = get_flight(filename)
+    me = _current(request)
+    flight = get_flight(filename, me["user_id"], me["is_admin"])
     if not flight:
         return HTMLResponse("Flight not found", status_code=404)
-    flights = _mission_flight_options()
+    flights = _mission_flight_options(me["user_id"], me["is_admin"])
     current = {"filename": flight["filename"], "date": flight.get("date", ""),
                "start_time": flight.get("start_time", "")}
     return templates.TemplateResponse(request, "mission.html", {"flights": flights, "current": current})
@@ -780,9 +828,10 @@ async def api_mission_track(request: Request):
     denied = require_api_auth(request)
     if denied:
         return denied
+    me = _current(request)
     body = await request.json()
     filename = body.get("filename", "")
-    flight = get_flight(filename)
+    flight = get_flight(filename, me["user_id"], me["is_admin"])
     if not flight:
         return JSONResponse({"error": "Volo non trovato"}, status_code=404)
     coords = clean_coords(flight.get("coordinates", []))
@@ -794,9 +843,10 @@ async def api_mission_preview(request: Request):
     denied = require_api_auth(request)
     if denied:
         return denied
+    me = _current(request)
     body = await request.json()
     try:
-        waypoints, xml = _mission_result(body)
+        waypoints, xml = _mission_result(body, me["user_id"], me["is_admin"])
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
     return {"waypoints": waypoints, "xml": xml}
@@ -807,9 +857,10 @@ async def api_mission_export(request: Request):
     denied = require_api_auth(request)
     if denied:
         return denied
+    me = _current(request)
     body = await request.json()
     try:
-        _waypoints, xml = _mission_result(body)
+        _waypoints, xml = _mission_result(body, me["user_id"], me["is_admin"])
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
     name = re.sub(r"[^\w\-.]", "_", str(body.get("name", "mission"))) or "mission"
@@ -944,7 +995,8 @@ async def api_rescan_nav(filename: str, request: Request):
     denied = require_api_auth(request)
     if denied:
         return denied
-    flight = get_flight(filename)
+    me = _current(request)
+    flight = get_flight(filename, me["user_id"], me["is_admin"])
     if not flight:
         return JSONResponse({"error": "not found"}, status_code=404)
     csv_path = LOG_DIR / filename
@@ -957,7 +1009,7 @@ async def api_rescan_nav(filename: str, request: Request):
     updated, matched = merge_nav(flight, points)
     flight["coordinates"] = updated
     events = _detect_events_for_track(points, updated)
-    update_flight_events(filename, events)
+    update_flight_events(filename, events, me["user_id"], me["is_admin"])
     gs = [c[34] for c in updated if len(c) > 34 and c[34] > 0]
     update_flight_track(filename, updated, {
         "distance_km": flight.get("distance_km", 0),
@@ -969,7 +1021,7 @@ async def api_rescan_nav(filename: str, request: Request):
         "avg_speed_kmh": flight.get("avg_speed_kmh", 0),
         "max_g": round(max(gs), 2) if gs else 0,
         "avg_g": round(sum(gs) / len(gs), 2) if gs else 0,
-    })
+    }, me["user_id"], me["is_admin"])
     return {"ok": True, "matched": matched, "total": len(updated)}
 
 
@@ -978,8 +1030,9 @@ async def vehicles_page(request: Request):
     redirect = require_auth(request)
     if redirect:
         return redirect
-    vehicles = get_vehicles()
-    stats = get_vehicle_stats()
+    me = _current(request)
+    vehicles = get_vehicles(me["user_id"], me["is_admin"])
+    stats = get_vehicle_stats(me["user_id"], me["is_admin"])
     return templates.TemplateResponse(request, "vehicles.html", {
         "vehicles": vehicles, "stats": stats
     })
@@ -990,8 +1043,10 @@ async def api_vehicles(request: Request):
     denied = require_api_auth(request)
     if denied:
         return denied
+    me = _current(request)
     return [{"id": v.id, "name": v.name, "vehicle_type": v.vehicle_type,
-             "photo": v.photo, "is_default": v.is_default} for v in get_vehicles()]
+             "photo": v.photo, "is_default": v.is_default}
+            for v in get_vehicles(me["user_id"], me["is_admin"])]
 
 
 @app.post("/api/vehicles")
@@ -999,13 +1054,14 @@ async def api_create_vehicle(request: Request):
     denied = require_api_auth(request)
     if denied:
         return denied
+    me = _current(request)
     body = await request.json()
     name = body.get("name", "").strip()
     if not name:
         return JSONResponse({"error": "name is required"}, status_code=400)
     vtype = body.get("vehicle_type", "drone")
     is_default = body.get("is_default", False)
-    v = create_vehicle(name, vtype, is_default)
+    v = create_vehicle(name, vtype, is_default, me["user_id"])
     return {"id": v.id, "name": v.name, "vehicle_type": v.vehicle_type, "is_default": v.is_default}
 
 
@@ -1014,12 +1070,15 @@ async def api_update_vehicle(vehicle_id: int, request: Request):
     denied = require_api_auth(request)
     if denied:
         return denied
+    me = _current(request)
     body = await request.json()
     v = update_vehicle(
         vehicle_id,
         name=body.get("name"),
         vehicle_type=body.get("vehicle_type"),
         is_default=body.get("is_default"),
+        owner_id=me["user_id"],
+        is_admin=me["is_admin"],
     )
     if not v:
         return JSONResponse({"error": "not found"}, status_code=404)
@@ -1031,7 +1090,8 @@ async def api_delete_vehicle(vehicle_id: int, request: Request):
     denied = require_api_auth(request)
     if denied:
         return denied
-    if delete_vehicle(vehicle_id):
+    me = _current(request)
+    if delete_vehicle(vehicle_id, me["user_id"], me["is_admin"]):
         return {"deleted": vehicle_id}
     return JSONResponse({"error": "not found"}, status_code=404)
 
@@ -1041,12 +1101,13 @@ async def api_vehicle_photo(vehicle_id: int, request: Request, file: UploadFile 
     denied = require_api_auth(request)
     if denied:
         return denied
-    v = get_vehicle(vehicle_id)
+    me = _current(request)
+    v = get_vehicle(vehicle_id, me["user_id"], me["is_admin"])
     if not v:
         return JSONResponse({"error": "not found"}, status_code=404)
     if not file.filename or not file.filename.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
         return JSONResponse({"error": "Only image files (jpg, png, webp) are supported"}, status_code=400)
-    photo_dir = Path(__file__).parent / "data" / "vehicle_photos"
+    photo_dir = database.DATA_DIR / "vehicle_photos"
     photo_dir.mkdir(parents=True, exist_ok=True)
     ext = Path(file.filename).suffix
     photo_name = f"v{vehicle_id}{ext}"
@@ -1055,22 +1116,27 @@ async def api_vehicle_photo(vehicle_id: int, request: Request, file: UploadFile 
     if len(contents) > 5 * 1024 * 1024:
         return JSONResponse({"error": "File too large (max 5 MB)"}, status_code=400)
     photo_path.write_bytes(contents)
-    set_vehicle_photo(vehicle_id, f"/flight/api/vehicles/{vehicle_id}/photo/img")
+    set_vehicle_photo(vehicle_id, f"/flight/api/vehicles/{vehicle_id}/photo/img", me["user_id"], me["is_admin"])
     return {"photo": f"/flight/api/vehicles/{vehicle_id}/photo/img"}
 
 
 @app.get("/api/vehicles/{vehicle_id}/photo/img")
 async def api_vehicle_photo_img(vehicle_id: int, request: Request):
-    v = get_vehicle(vehicle_id)
+    if not request.session.get("user_id"):
+        return HTMLResponse("", status_code=404)
+    me = _current(request)
+    v = get_vehicle(vehicle_id, me["user_id"], me["is_admin"])
     if not v or not v.photo:
         return HTMLResponse("", status_code=404)
-    photo_dir = Path(__file__).parent / "data" / "vehicle_photos"
+    photo_dir = database.DATA_DIR / "vehicle_photos"
     ext_candidates = [".jpg", ".jpeg", ".png", ".webp"]
     for ext in ext_candidates:
         p = photo_dir / f"v{vehicle_id}{ext}"
         if p.exists():
             from fastapi.responses import FileResponse
-            return FileResponse(str(p))
+            resp = FileResponse(str(p))
+            resp.headers["Cache-Control"] = "no-store"
+            return resp
     return HTMLResponse("", status_code=404)
 
 
@@ -1079,14 +1145,15 @@ async def api_apply_default_vehicle(request: Request):
     denied = require_api_auth(request)
     if denied:
         return denied
-    default_v = get_default_vehicle()
+    me = _current(request)
+    default_v = get_default_vehicle(me["user_id"], me["is_admin"])
     if not default_v:
         return JSONResponse({"error": "No default vehicle set"}, status_code=400)
-    flights = get_all_flights()
+    flights = get_all_flights(me["user_id"], me["is_admin"])
     updated = 0
     for f in flights:
         if f.get("vehicle_id") is None:
-            assign_vehicle_to_flight(f["filename"], default_v.id)
+            assign_vehicle_to_flight(f["filename"], default_v.id, me["user_id"], me["is_admin"])
             updated += 1
     return {"updated": updated, "vehicle": default_v.name}
 
@@ -1096,10 +1163,11 @@ async def replay3d_page(request: Request, filename: str):
     redirect = require_auth(request)
     if redirect:
         return redirect
-    flight = get_flight(filename)
+    me = _current(request)
+    flight = get_flight(filename, me["user_id"], me["is_admin"])
     if not flight:
         return HTMLResponse("Flight not found", status_code=404)
-    vehicle = get_vehicle(flight.get("vehicle_id")) if flight.get("vehicle_id") else None
+    vehicle = get_vehicle(flight.get("vehicle_id"), me["user_id"], me["is_admin"]) if flight.get("vehicle_id") else None
     resp = templates.TemplateResponse(request, "replay3d.html", {
         "flight": flight, "vehicle": vehicle, "filename": filename
     })
@@ -1114,7 +1182,8 @@ async def api_replay3d(request: Request, filename: str):
     denied = require_api_auth(request)
     if denied:
         return denied
-    flight = get_flight(filename)
+    me = _current(request)
+    flight = get_flight(filename, me["user_id"], me["is_admin"])
     if not flight:
         return JSONResponse({"error": "not found"}, status_code=404)
 
@@ -1184,7 +1253,8 @@ async def api_battery_health(request: Request):
     denied = require_api_auth(request)
     if denied:
         return denied
-    flights = get_all_flights()
+    me = _current(request)
+    flights = get_all_flights(me["user_id"], me["is_admin"])
     data = []
     for f in flights:
         d = f.get("date", "")
@@ -1202,8 +1272,10 @@ async def api_battery_per_vehicle(request: Request):
     denied = require_api_auth(request)
     if denied:
         return denied
+    me = _current(request)
     vehicle_id = request.query_params.get("vehicle_id")
-    return get_battery_health_by_vehicle(int(vehicle_id) if vehicle_id else None)
+    return get_battery_health_by_vehicle(int(vehicle_id) if vehicle_id else None,
+                                         me["user_id"], me["is_admin"])
 
 
 # --- User management (admin only) ---
@@ -1285,8 +1357,41 @@ async def api_delete_user(user_id: int, request: Request):
         return JSONResponse({"error": "not found"}, status_code=404)
     if user["username"] == request.session.get("username"):
         return JSONResponse({"error": "cannot delete yourself"}, status_code=400)
-    delete_user(user_id)
-    return {"deleted": user_id}
+    body = {}
+    raw = await request.body()
+    if raw:
+        try:
+            body = json.loads(raw)
+        except Exception:
+            body = {}
+    confirm = str(body.get("confirm", "")).strip().lower() == "true"
+    counts = count_user_data(user_id)
+    if not confirm:
+        return JSONResponse({
+            "error": "confirmation required",
+            "confirm": True,
+            "counts": counts,
+        }, status_code=409)
+    deleted_files = []
+    backup_info = None
+    if str(body.get("backup", "")).strip().lower() == "true":
+        backup_dir = database.DATA_DIR / "backups"
+        backup_info = backup_database(backup_dir)
+    result = delete_user_cascade(user_id)
+    for fname in result.get("flights", []):
+        (LOG_DIR / fname).unlink(missing_ok=True)
+        deleted_files.append(fname)
+    photo_dir = database.DATA_DIR / "vehicle_photos"
+    for vid in result.get("vehicles", []):
+        for ext in (".jpg", ".jpeg", ".png", ".webp"):
+            (photo_dir / f"v{vid}{ext}").unlink(missing_ok=True)
+    return {
+        "deleted": user_id,
+        "flights_deleted": len(result.get("flights", [])),
+        "vehicles_deleted": len(result.get("vehicles", [])),
+        "files_removed": deleted_files,
+        "backup": str(backup_info) if backup_info else None,
+    }
 
 
 @app.post("/api/users/{user_id}/change-password")
@@ -1312,4 +1417,5 @@ async def api_change_password(user_id: int, request: Request):
 # Auto-sync: merge nav telemetry for all flights and recompute derived metrics
 # on startup, so every statistic is available from the first load without
 # needing a manual rescan-nav on each flight.
-sync_all_flights_from_csv()
+if not os.environ.get("FLIGHT_ANALYZER_SKIP_STARTUP_SYNC"):
+    sync_all_flights_from_csv()
