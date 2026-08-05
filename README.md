@@ -286,20 +286,36 @@ pocket-log-analyzer/
 
 ## Roadmap
 
+The detailed multi-user roadmap (44 items, phases F0–F8) is tracked in
+[`docs/ROADMAP.md`](docs/ROADMAP.md) and as GitHub issues
+([project board](https://github.com/users/kkongiu/projects/1)).
+
+Done so far:
+
 - [x] CSV import and telemetry parsing
 - [x] Interactive map with playback
 - [x] Telemetry charts (altitude, speed, RSSI, battery, RC)
 - [x] Vehicle management
-- [x] Multi-user with roles
+- [x] Multi-user with roles (admin/viewer)
 - [x] Tailwind UI polish
-- [ ] Battery cell-level analysis
-- [ ] PDF report export
-- [ ] Maintenance reminders / alerts engine
-- [ ] Drone model auto-detection from log headers
-- [ ] API tokens for external upload
-- [ ] Betaflight / ArduPilot log support
-- [ ] Docker image
-- [ ] i18n (Italian, Spanish, French)
+- [x] INAV waypoint mission builder
+- [x] Production hardening (SQLite WAL, systemd, deploy checklist)
+
+Next (by phase):
+
+- **F0 · Fondamenta** — versioned DB migrations + Docker, automated backups, monitoring, E2E test suite + CI
+- **F1 · Sicurezza** — rate limiting, CSRF, secure session cookies, password policy
+- **F2 · Account** — public registration, password reset, self-service account
+- **F3 · Isolamento** — per-user flight ownership (`owner_id`), access control, isolation tests
+- **F4 · Privacy** — account deletion + data export, audit log, privacy policy
+- **F5 · Messaggi** — private messaging, in-app notifications, email/push alerts
+- **F6 · Foto** — per-flight photo gallery, covers, geotagged photos
+- **F7 · Sharing** — public share links, social buttons, comments/likes, team groups
+- **F8 · Dominio** — maintenance reminders, Excel/CSV export, API upload tokens, flight weather
+
+Other ideas from the original roadmap are still on the list: battery cell-level analysis,
+PDF report export, drone model auto-detection, Betaflight / ArduPilot log support,
+Docker image, and i18n.
 
 ---
 
