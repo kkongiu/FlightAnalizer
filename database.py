@@ -4,7 +4,7 @@ import os
 import secrets
 import sqlite3
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from models import FlightSummary, Vehicle
 
 DATA_DIR = Path(os.environ.get("POCKET_DATA_DIR", Path(__file__).parent / "data"))
@@ -54,9 +54,39 @@ def _migrate_003_vehicles_owner_id(conn: sqlite3.Connection):
         conn.execute("UPDATE vehicles SET owner_id = ? WHERE owner_id IS NULL", (admin_id,))
 
 
+def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    row = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return any(r["name"] == column for r in row)
+
+
+def _migrate_004_users_account_fields(conn: sqlite3.Connection):
+    if not _column_exists(conn, "users", "status"):
+        conn.execute("ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
+    if not _column_exists(conn, "users", "reset_token_hash"):
+        conn.execute("ALTER TABLE users ADD COLUMN reset_token_hash TEXT")
+    if not _column_exists(conn, "users", "reset_expires_at"):
+        conn.execute("ALTER TABLE users ADD COLUMN reset_expires_at TEXT")
+    if not _column_exists(conn, "users", "preferences"):
+        conn.execute("ALTER TABLE users ADD COLUMN preferences TEXT NOT NULL DEFAULT '{}'")
+
+
+def _migrate_005_users_email_confirmation(conn: sqlite3.Connection):
+    if not _column_exists(conn, "users", "email"):
+        conn.execute("ALTER TABLE users ADD COLUMN email TEXT")
+    if not _column_exists(conn, "users", "confirm_token_hash"):
+        conn.execute("ALTER TABLE users ADD COLUMN confirm_token_hash TEXT")
+    if not _column_exists(conn, "users", "confirm_expires_at"):
+        conn.execute("ALTER TABLE users ADD COLUMN confirm_expires_at TEXT")
+    if not _column_exists(conn, "users", "privacy_accepted_at"):
+        conn.execute("ALTER TABLE users ADD COLUMN privacy_accepted_at TEXT")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email)")
+
+
 MIGRATIONS = [
     (2, "flights_owner_id", _migrate_002_flights_owner_id),
     (3, "vehicles_owner_id", _migrate_003_vehicles_owner_id),
+    (4, "users_account_fields", _migrate_004_users_account_fields),
+    (5, "users_email_confirmation", _migrate_005_users_email_confirmation),
 ]
 
 
@@ -154,6 +184,14 @@ def init_db():
                 password_hash TEXT NOT NULL,
                 salt TEXT NOT NULL,
                 role TEXT NOT NULL DEFAULT 'viewer',
+                status TEXT NOT NULL DEFAULT 'active',
+                reset_token_hash TEXT,
+                reset_expires_at TEXT,
+                preferences TEXT NOT NULL DEFAULT '{}',
+                email TEXT,
+                confirm_token_hash TEXT,
+                confirm_expires_at TEXT,
+                privacy_accepted_at TEXT,
                 created_at TEXT DEFAULT (datetime('now'))
             )
         """)
@@ -688,14 +726,17 @@ def _verify_password(password: str, stored_hash: str, salt: str) -> bool:
     return key == stored_hash
 
 
-def create_user(username: str, password: str, role: str = "viewer") -> dict | None:
+def create_user(username: str, password: str, role: str = "viewer",
+                status: str = "active", email: str | None = None,
+                privacy_accepted_at: str | None = None) -> dict | None:
     hashed, salt = _hash_password(password)
     user_id = None
     with _get_conn() as conn:
         try:
             cur = conn.execute(
-                "INSERT INTO users (username, password_hash, salt, role) VALUES (?, ?, ?, ?)",
-                (username, hashed, salt, role),
+                "INSERT INTO users (username, password_hash, salt, role, status, "
+                "email, privacy_accepted_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (username, hashed, salt, role, status, email, privacy_accepted_at),
             )
             user_id = cur.lastrowid
         except sqlite3.IntegrityError:
@@ -703,39 +744,78 @@ def create_user(username: str, password: str, role: str = "viewer") -> dict | No
     return get_user_by_id(user_id) if user_id is not None else None
 
 
+def _user_row_dict(row: sqlite3.Row) -> dict:
+    data = dict(row)
+    try:
+        data["preferences"] = json.loads(data.get("preferences") or "{}")
+    except (ValueError, TypeError):
+        data["preferences"] = {}
+    return data
+
+
 def get_user_by_id(user_id: int) -> dict | None:
     with _get_conn() as conn:
-        row = conn.execute("SELECT id, username, role, created_at FROM users WHERE id = ?", (user_id,)).fetchone()
-    return dict(row) if row else None
+        row = conn.execute(
+            "SELECT id, username, role, status, created_at, preferences, email "
+            "FROM users WHERE id = ?", (user_id,)).fetchone()
+    return _user_row_dict(row) if row else None
 
 
 def get_user(username: str) -> dict | None:
     with _get_conn() as conn:
-        row = conn.execute("SELECT id, username, role, created_at, password_hash, salt FROM users WHERE username = ?", (username,)).fetchone()
+        row = conn.execute(
+            "SELECT id, username, role, status, created_at, preferences, "
+            "password_hash, salt FROM users WHERE username = ?",
+            (username,)).fetchone()
+    return _user_row_dict(row) if row else None
+
+
+def get_user_by_email(email: str) -> dict | None:
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, username, status, email FROM users WHERE email = ?",
+            (email,)).fetchone()
     return dict(row) if row else None
 
 
 def get_all_users() -> list[dict]:
     with _get_conn() as conn:
-        rows = conn.execute("SELECT id, username, role, created_at FROM users ORDER BY created_at ASC").fetchall()
+        rows = conn.execute(
+            "SELECT id, username, role, status, email, created_at "
+            "FROM users ORDER BY created_at ASC").fetchall()
     return [dict(r) for r in rows]
 
 
-def update_user(user_id: int, username: str = None, role: str = None) -> dict | None:
+def update_user(user_id: int, username: str = None, role: str = None,
+                status: str = None, email: str | None = None) -> dict | None:
     with _get_conn() as conn:
         existing = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
         if not existing:
             return None
         new_username = username if username is not None else existing["username"]
         new_role = role if role is not None else existing["role"]
+        new_status = status if status is not None else existing["status"]
+        new_email = email if email is not None else existing["email"]
+        if new_role not in ("admin", "viewer"):
+            return None
+        if new_status not in ("active", "pending", "disabled"):
+            return None
         try:
             conn.execute(
-                "UPDATE users SET username = ?, role = ? WHERE id = ?",
-                (new_username, new_role, user_id),
+                "UPDATE users SET username = ?, role = ?, status = ?, email = ? WHERE id = ?",
+                (new_username, new_role, new_status, new_email, user_id),
             )
         except sqlite3.IntegrityError:
             return None
     return get_user_by_id(user_id)
+
+
+def set_user_status(user_id: int, status: str) -> bool:
+    if status not in ("active", "pending", "disabled"):
+        return False
+    with _get_conn() as conn:
+        cur = conn.execute("UPDATE users SET status = ? WHERE id = ?", (status, user_id))
+        return cur.rowcount > 0
 
 
 def change_password(user_id: int, new_password: str) -> bool:
@@ -745,6 +825,71 @@ def change_password(user_id: int, new_password: str) -> bool:
             "UPDATE users SET password_hash = ?, salt = ? WHERE id = ?",
             (hashed, salt, user_id),
         )
+        return cur.rowcount > 0
+
+
+def create_reset_token(user_id: int, token_hash: str, expires_at: str) -> bool:
+    with _get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE users SET reset_token_hash = ?, reset_expires_at = ? WHERE id = ?",
+            (token_hash, expires_at, user_id),
+        )
+        return cur.rowcount > 0
+
+
+def get_reset_token_user(token_hash: str) -> dict | None:
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, username FROM users "
+            "WHERE reset_token_hash = ? AND reset_expires_at IS NOT NULL "
+            "AND reset_expires_at > ? AND status = 'active'",
+            (token_hash, datetime.now(timezone.utc).isoformat())).fetchone()
+    return dict(row) if row else None
+
+
+def clear_reset_token(user_id: int) -> None:
+    with _get_conn() as conn:
+        conn.execute(
+            "UPDATE users SET reset_token_hash = NULL, reset_expires_at = NULL "
+            "WHERE id = ?", (user_id,))
+
+
+def create_confirm_token(user_id: int, token_hash: str, expires_at: str) -> bool:
+    with _get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE users SET confirm_token_hash = ?, confirm_expires_at = ? WHERE id = ?",
+            (token_hash, expires_at, user_id),
+        )
+        return cur.rowcount > 0
+
+
+def get_confirm_token_user(token_hash: str) -> dict | None:
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, username FROM users "
+            "WHERE confirm_token_hash = ? AND confirm_expires_at IS NOT NULL "
+            "AND confirm_expires_at > ? AND status = 'pending'",
+            (token_hash, datetime.now(timezone.utc).isoformat())).fetchone()
+    return dict(row) if row else None
+
+
+def clear_confirm_token(user_id: int) -> None:
+    with _get_conn() as conn:
+        conn.execute(
+            "UPDATE users SET confirm_token_hash = NULL, confirm_expires_at = NULL "
+            "WHERE id = ?", (user_id,))
+
+
+def activate_user(user_id: int) -> bool:
+    with _get_conn() as conn:
+        cur = conn.execute("UPDATE users SET status = 'active' WHERE id = ?", (user_id,))
+        return cur.rowcount > 0
+
+
+def set_user_preferences(user_id: int, preferences: dict) -> bool:
+    with _get_conn() as conn:
+        cur = conn.execute("UPDATE users SET preferences = ? WHERE id = ?",
+                           (json.dumps(preferences), user_id))
         return cur.rowcount > 0
 
 
@@ -803,9 +948,9 @@ def verify_user(username: str, password: str) -> dict | None:
     user = get_user(username)
     if not user:
         return None
-    if _verify_password(password, user["password_hash"], user["salt"]):
-        return get_user_by_id(user["id"])
-    return None
+    if not _verify_password(password, user["password_hash"], user["salt"]):
+        return None
+    return get_user_by_id(user["id"])
 
 
 init_db()

@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register - Pocket Log Analyzer</title>
+    <link rel="stylesheet" href="/flight/static/style.css">
+    <style>
+        .login-wrapper {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 80vh;
+        }
+        .login-box {
+            background: white;
+            padding: 3rem 2rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+            width: 340px;
+            text-align: center;
+        }
+        .login-box h1 {
+            font-size: 1.5rem;
+            color: #1a1a2e;
+            margin-bottom: 0.3rem;
+        }
+        .login-box p {
+            color: #888;
+            font-size: 0.85rem;
+            margin-bottom: 1.5rem;
+        }
+        .login-box input {
+            width: 100%;
+            padding: 0.7rem;
+            margin-bottom: 1rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 1rem;
+            box-sizing: border-box;
+        }
+        .login-box input:focus {
+            border-color: #0ea5e9;
+            outline: none;
+        }
+        .login-box button {
+            width: 100%;
+            padding: 0.7rem;
+            background: #0ea5e9;
+            color: #1a1a2e;
+            border: none;
+            border-radius: 4px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .login-box button:hover {
+            background: #0284c7;
+        }
+        .login-box .error {
+            color: #ef4444;
+            font-size: 0.85rem;
+            margin-top: 0.8rem;
+        }
+        .login-box .ok {
+            color: #16a34a;
+            font-size: 0.85rem;
+            margin-top: 0.8rem;
+        }
+        .login-box a {
+            color: #0ea5e9;
+            font-size: 0.85rem;
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-wrapper">
+        <div class="login-box">
+            <h1>Pocket Log Analyzer</h1>
+            <p>Create an account</p>
+            <input type="text" id="user" placeholder="Username" autocomplete="username">
+            <input type="email" id="email" placeholder="Email" autocomplete="email">
+            <input type="password" id="pass" placeholder="Password" autocomplete="new-password">
+            <input type="password" id="pass2" placeholder="Confirm password" autocomplete="new-password">
+            <div style="text-align:left;margin-bottom:1rem;">
+                <label style="font-size:0.8rem;color:#555;display:flex;gap:0.4rem;align-items:flex-start;">
+                    <input type="checkbox" id="consent" style="width:auto;margin-top:0.1rem;">
+                    <span>Accetto la <a href="/flight/privacy" style="color:#0ea5e9;text-decoration:underline;">privacy policy</a> e il trattamento dei miei dati personali.</span>
+                </label>
+            </div>
+            <button id="registerBtn">Register</button>
+            <div class="ok" id="okMsg"></div>
+            <div class="error" id="errorMsg"></div>
+            <p style="margin-top:1rem"><a href="/flight/login">Back to sign in</a></p>
+        </div>
+    </div>
+    <script>
+        const REGISTRATION_MODE = '{{ mode }}';
+        document.getElementById('registerBtn').addEventListener('click', async () => {
+            const user = document.getElementById('user').value.trim();
+            const email = document.getElementById('email').value.trim();
+            const pass = document.getElementById('pass').value;
+            const pass2 = document.getElementById('pass2').value;
+            const consent = document.getElementById('consent').checked;
+            const err = document.getElementById('errorMsg');
+            const ok = document.getElementById('okMsg');
+            err.textContent = '';
+            ok.textContent = '';
+            if (!user || !pass) { err.textContent = 'Username and password are required'; return; }
+            if (pass !== pass2) { err.textContent = 'Passwords do not match'; return; }
+            if (!consent) { err.textContent = 'You must accept the privacy policy'; return; }
+            try {
+                const res = await fetch('/flight/api/register', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({username: user, email: email, password: pass, consent: consent})
+                });
+                if (res.ok) {
+                    const body = await res.json();
+                    if (body.mode === 'confirm') {
+                        ok.textContent = 'Account created. Check your email to confirm your registration.';
+                    } else if (body.status === 'pending') {
+                        ok.textContent = 'Account created. An admin must approve it before you can sign in.';
+                    } else {
+                        ok.textContent = 'Account created. You can now sign in.';
+                    }
+                    document.getElementById('registerBtn').disabled = true;
+                } else {
+                    let msg = 'Registration failed';
+                    try {
+                        const body = await res.json();
+                        if (body && body.error) msg = body.error;
+                    } catch(e) {}
+                    err.textContent = msg;
+                }
+            } catch(e) {
+                err.textContent = 'Connection error';
+            }
+        });
+        document.getElementById('user').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('registerBtn').click(); });
+        document.getElementById('pass').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('registerBtn').click(); });
+        document.getElementById('pass2').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('registerBtn').click(); });
+    </script>
+</body>
+</html>

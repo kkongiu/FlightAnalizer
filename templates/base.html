@@ -32,6 +32,7 @@
                 {% if request.session.get('role') == 'admin' %}
                 <a href="/flight/users" class="px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">Users</a>
                 {% endif %}
+                <a href="/flight/account" class="px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">Account</a>
                 <button id="themeToggle" class="ml-1 px-2 py-1.5 rounded-lg text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition">🌙</button>
                 <form method="POST" action="/flight/logout" class="inline">
                     <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token or '' }}">

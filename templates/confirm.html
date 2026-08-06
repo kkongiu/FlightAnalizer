@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Account Confirmation - Pocket Log Analyzer</title>
+    <link rel="stylesheet" href="/flight/static/style.css">
+    <style>
+        .login-wrapper {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 80vh;
+        }
+        .login-box {
+            background: white;
+            padding: 3rem 2rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+            width: 380px;
+            text-align: center;
+        }
+        .login-box h1 {
+            font-size: 1.5rem;
+            color: #1a1a2e;
+            margin-bottom: 1rem;
+        }
+        .login-box .ok {
+            color: #16a34a;
+            font-size: 0.95rem;
+            margin-bottom: 1rem;
+        }
+        .login-box .error {
+            color: #ef4444;
+            font-size: 0.95rem;
+            margin-bottom: 1rem;
+        }
+        .login-box a {
+            color: #0ea5e9;
+            font-size: 0.85rem;
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-wrapper">
+        <div class="login-box">
+            <h1>Pocket Log Analyzer</h1>
+            {% if success %}
+            <div class="ok">Account confermato. Ora puoi accedere.</div>
+            <p><a href="/flight/login">Vai al login</a></p>
+            {% else %}
+            <div class="error">{{ error or 'Invalid confirmation link' }}</div>
+            <p><a href="/flight/login">Torna al login</a></p>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

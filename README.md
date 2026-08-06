@@ -230,24 +230,65 @@ retention policy already handled locally.
   requires the `X-CSRF-Token` header (the frontend adds it automatically from
   a per-page meta tag); HTML forms carry a hidden `csrf_token` field.
 - **Rate limiting** — brute-force protection on login
-  (`POCKET_LOGIN_RATE_LIMIT`, default 10 attempts / 15 min per IP) and on
-  password changes (`POCKET_PASSWORD_RATE_LIMIT`, default 5 / 15 min).
+  (`POCKET_LOGIN_RATE_LIMIT`, default 10 attempts / 15 min per IP), on
+  password changes (`POCKET_PASSWORD_RATE_LIMIT`, default 5 / 15 min) and on
+  registration (`POCKET_REGISTRATION_RATE_LIMIT`, default 5 / hour).
   Trust `X-Forwarded-For` only behind a proxy with `POCKET_TRUSTED_PROXY=1`.
 - **Password policy** — at least 10 characters and 3 of 4 character classes
   (lowercase, uppercase, digits, symbols) on user creation and password change.
 - **Auth coverage** — all data routes and API endpoints require an
-  authenticated session; health check, login and static assets are public.
+  authenticated session; health check, login, registration, password reset
+  and static assets are public.
+
+### Accounts
+
+- **Registration** — public sign-up is off by default. Set `POCKET_REGISTRATION`
+  to one of:
+  - `open` — instant access;
+  - `approval` — admin must approve the account from the *Users* page;
+  - `confirm` — the user must click an email confirmation link to activate the
+    account (requires SMTP configuration, see below).
+  Registration collects an email address, a password (see policy) and an
+  explicit GDPR-style consent checkbox (timestamp stored in the database).
+  A public privacy page lives at `/flight/privacy`.
+- **Email confirmation** — in `confirm` mode the user receives an activation
+  link (valid `POCKET_CONFIRM_TTL` seconds, default 24 h) at `/confirm`.
+  Sending is done with stdlib `smtplib`; configure `POCKET_SMTP_*`.
+- **Password reset** — administrators can issue a one-time reset link from the
+  *Users* page (`POST /api/users/{id}/reset-password`); the token expires after
+  `POCKET_RESET_TOKEN_TTL` seconds (default 24 h). The link leads to a public
+  reset page.
+- **Self-service account** — every user can change their username, email,
+  password (current password required) and theme preference from the *Account*
+  page.
+- **Account status** — users can be `active`, `pending` (awaiting approval or
+  email confirmation) or `disabled`. A disabled account cannot log in and
+  existing sessions are revoked immediately. Admins cannot disable their own
+  account.
 
 ### Environment variables
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `POCKET_SESSION_SECRET` | *(generated)* | Session signing secret (≥ 32 chars) |
+| `POCKET_REGISTRATION` | `off` | `off`, `open`, `approval` or `confirm` |
 | `POCKET_LOGIN_RATE_LIMIT` | `10` | Max login attempts per window per IP |
 | `POCKET_LOGIN_RATE_WINDOW` | `900` | Login rate window in seconds |
 | `POCKET_PASSWORD_RATE_LIMIT` | `5` | Max password changes per window per IP |
 | `POCKET_PASSWORD_RATE_WINDOW` | `900` | Password rate window in seconds |
-| `POCKET_TRUSTED_PROXY` | unset | Set `1` to trust `X-Forwarded-For` |
+| `POCKET_REGISTRATION_RATE_LIMIT` | `5` | Max registrations per window per IP |
+| `POCKET_REGISTRATION_RATE_WINDOW` | `3600` | Registration rate window in seconds |
+| `POCKET_RESET_TOKEN_TTL` | `86400` | Password reset token lifetime (seconds) |
+| `POCKET_CONFIRM_TTL` | `86400` | Email confirmation token lifetime (seconds) |
+| `POCKET_PUBLIC_URL` | *(derived)* | External base URL of the app (e.g. `https://yourdomain/flight`) used to build activation links |
+| `POCKET_SMTP_HOST` | *(empty)* | SMTP server host (required for `confirm` mode) |
+| `POCKET_SMTP_PORT` | `587` | SMTP port |
+| `POCKET_SMTP_USER` | *(empty)* | SMTP username (optional) |
+| `POCKET_SMTP_PASS` | *(empty)* | SMTP password (optional) |
+| `POCKET_SMTP_FROM` | *(empty)* | Sender address (required for `confirm` mode) |
+| `POCKET_SMTP_STARTTLS` | `1` | Use STARTTLS on `POCKET_SMTP_PORT` |
+| `POCKET_SMTP_SSL` | `0` | Set `1` for implicit TLS (e.g. port 465) |
+| `POCKET_TRUSTED_PROXY` | unset | Set `1` to trust `X-Forwarded-For` / `X-Forwarded-Proto` |
 
 ---
 

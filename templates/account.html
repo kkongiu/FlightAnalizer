@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Account - Pocket Log Analyzer{% endblock %}
+{% block content %}
+<div class="dashboard">
+    <div class="header-bar">
+        <h2>Account</h2>
+    </div>
+
+    <div class="record-grid" style="max-width:560px;">
+        <div class="record-card">
+            <h3 style="font-size:0.95rem;font-weight:600;color:var(--text);margin-bottom:1rem;">Username & Email</h3>
+            <input type="text" id="username" value="{{ user.username }}" style="width:100%;padding:0.6rem;border:1px solid var(--border,#ddd);border-radius:6px;margin-bottom:0.75rem;">
+            <input type="email" id="email" value="{{ user.email or '' }}" placeholder="Email (per conferme e notifiche)" style="width:100%;padding:0.6rem;border:1px solid var(--border,#ddd);border-radius:6px;margin-bottom:0.75rem;">
+            <button id="saveUsernameBtn" class="btn-primary">Save</button>
+            <div class="error" id="usernameError" style="color:#ef4444;font-size:0.85rem;margin-top:0.5rem;"></div>
+            <div class="ok" id="usernameOk" style="color:#16a34a;font-size:0.85rem;margin-top:0.5rem;"></div>
+        </div>
+
+        <div class="record-card">
+            <h3 style="font-size:0.95rem;font-weight:600;color:var(--text);margin-bottom:1rem;">Change Password</h3>
+            <input type="password" id="currentPassword" placeholder="Current password" autocomplete="current-password" style="width:100%;padding:0.6rem;border:1px solid var(--border,#ddd);border-radius:6px;margin-bottom:0.75rem;">
+            <input type="password" id="newPassword" placeholder="New password" autocomplete="new-password" style="width:100%;padding:0.6rem;border:1px solid var(--border,#ddd);border-radius:6px;margin-bottom:0.75rem;">
+            <input type="password" id="confirmPassword" placeholder="Confirm new password" autocomplete="new-password" style="width:100%;padding:0.6rem;border:1px solid var(--border,#ddd);border-radius:6px;margin-bottom:0.75rem;">
+            <button id="changePasswordBtn" class="btn-primary">Change Password</button>
+            <div class="error" id="passwordError" style="color:#ef4444;font-size:0.85rem;margin-top:0.5rem;"></div>
+            <div class="ok" id="passwordOk" style="color:#16a34a;font-size:0.85rem;margin-top:0.5rem;"></div>
+        </div>
+
+        <div class="record-card">
+            <h3 style="font-size:0.95rem;font-weight:600;color:var(--text);margin-bottom:1rem;">Preferences</h3>
+            <label style="font-size:0.85rem;color:var(--text-muted,#666);display:block;margin-bottom:0.4rem;">Theme</label>
+            <select id="themeSelect" style="width:100%;padding:0.6rem;border:1px solid var(--border,#ddd);border-radius:6px;margin-bottom:0.75rem;">
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+            </select>
+            <div class="ok" id="themeOk" style="color:#16a34a;font-size:0.85rem;margin-top:0.5rem;"></div>
+        </div>
+    </div>
+</div>
+<script>
+(function() {
+    const saved = localStorage.getItem('theme');
+    const serverTheme = {{ (user.preferences.theme or '')|tojson }};
+    const current = serverTheme || saved || 'light';
+    document.getElementById('themeSelect').value = current;
+    document.getElementById('themeSelect').addEventListener('change', async (e) => {
+        const theme = e.target.value;
+        document.documentElement.setAttribute('data-theme', theme);
+        localStorage.setItem('theme', theme);
+        try {
+            await fetch('/flight/api/account/preferences', {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({preferences: {theme: theme}})
+            });
+            document.getElementById('themeOk').textContent = 'Theme saved';
+        } catch(e) {}
+    });
+
+    document.getElementById('saveUsernameBtn').addEventListener('click', async () => {
+        const err = document.getElementById('usernameError');
+        const ok = document.getElementById('usernameOk');
+        err.textContent = '';
+        ok.textContent = '';
+        const username = document.getElementById('username').value.trim();
+        const email = document.getElementById('email').value.trim();
+        if (!username) { err.textContent = 'Username is required'; return; }
+        const res = await fetch('/flight/api/account', {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({username: username, email: email})
+        });
+        if (res.ok) {
+            ok.textContent = 'Username updated';
+        } else {
+            const body = await res.json().catch(() => ({}));
+            err.textContent = body.error || 'Update failed';
+        }
+    });
+
+    document.getElementById('changePasswordBtn').addEventListener('click', async () => {
+        const err = document.getElementById('passwordError');
+        const ok = document.getElementById('passwordOk');
+        err.textContent = '';
+        ok.textContent = '';
+        const current = document.getElementById('currentPassword').value;
+        const pass = document.getElementById('newPassword').value;
+        const pass2 = document.getElementById('confirmPassword').value;
+        if (!current || !pass) { err.textContent = 'All fields are required'; return; }
+        if (pass !== pass2) { err.textContent = 'Passwords do not match'; return; }
+        const res = await fetch('/flight/api/account/change-password', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({current_password: current, password: pass})
+        });
+        if (res.ok) {
+            ok.textContent = 'Password updated';
+            document.getElementById('currentPassword').value = '';
+            document.getElementById('newPassword').value = '';
+            document.getElementById('confirmPassword').value = '';
+        } else {
+            const body = await res.json().catch(() => ({}));
+            err.textContent = body.error || 'Update failed';
+        }
+    });
+})();
+</script>
+{% endblock %}

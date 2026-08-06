@@ -49,6 +49,11 @@ pianifica ~2× i dati per i backup.
       (vedi README "Systemd service")
 - [ ] `POCKET_SESSION_SECRET` ≥ 32 caratteri (es. `openssl rand -hex 32`);
       se assente l'app genera un segreto persistente in `data/.session_secret` (600)
+- [ ] Registrazione pubblica: lasciare `POCKET_REGISTRATION=off` se non richiesta;
+      per gruppi usare `approval` (approvazione admin) invece di `open`
+- [ ] Modalità `confirm` (attivazione via email): configurare `POCKET_SMTP_*`
+      (host/from obbligatori) e `POCKET_PUBLIC_URL`; il link di attivazione
+      viene costruito dall'host della richiesta se `POCKET_PUBLIC_URL` è assente
 - [ ] Firewall: solo 80/443 + SSH
 - [ ] fail2ban su SSH (e sul login dell'app, già protetto da rate limiting interno)
 - [ ] `unattended-upgrades` solo per gli update di sicurezza

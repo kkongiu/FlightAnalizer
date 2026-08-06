@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import logging
 import os
 import re
@@ -7,7 +8,7 @@ import math
 import json
 from contextlib import asynccontextmanager
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from collections import defaultdict
 import xml.etree.ElementTree as ET
 from xml.sax.saxutils import escape as xml_escape
@@ -31,9 +32,14 @@ from database import (save_flight, get_all_flights, get_flight, delete_flight,
                       create_user, get_user, get_user_by_id, get_all_users,
                       update_user, change_password, verify_user,
                       recalculate_home_distances, set_flight_track_source,
-                      count_user_data, delete_user_cascade, backup_database)
+                      count_user_data, delete_user_cascade, backup_database,
+                      create_reset_token, get_reset_token_user,
+                      clear_reset_token, set_user_preferences,
+                      get_user_by_email, create_confirm_token,
+                      get_confirm_token_user, clear_confirm_token, activate_user)
 import httpx
 import backup
+import mailer
 from mission import (clean_coords, build_mission_from_params, track_meta,
                      validate_waypoints, render_mission_xml)
 from fastapi.responses import Response
@@ -47,9 +53,17 @@ LOGIN_LIMIT = int(os.environ.get("POCKET_LOGIN_RATE_LIMIT", "10"))
 LOGIN_WINDOW = int(os.environ.get("POCKET_LOGIN_RATE_WINDOW", "900"))
 PASSWORD_LIMIT = int(os.environ.get("POCKET_PASSWORD_RATE_LIMIT", "5"))
 PASSWORD_WINDOW = int(os.environ.get("POCKET_PASSWORD_RATE_WINDOW", "900"))
+REGISTRATION_MODE = os.environ.get("POCKET_REGISTRATION", "off").strip().lower()
+REGISTRATION_LIMIT = int(os.environ.get("POCKET_REGISTRATION_RATE_LIMIT", "5"))
+REGISTRATION_WINDOW = int(os.environ.get("POCKET_REGISTRATION_RATE_WINDOW", "3600"))
+RESET_TOKEN_TTL_SECONDS = int(os.environ.get("POCKET_RESET_TOKEN_TTL", str(24 * 3600)))
+CONFIRM_TTL_SECONDS = int(os.environ.get("POCKET_CONFIRM_TTL", str(24 * 3600)))
+PUBLIC_URL = os.environ.get("POCKET_PUBLIC_URL", "").strip().rstrip("/")
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 login_limiter = RateLimiter()
 password_limiter = RateLimiter()
+register_limiter = RateLimiter()
 
 
 def _setup_logging():
@@ -240,14 +254,43 @@ async def api_health():
     }
 
 
+def _session_user_active(request: Request) -> bool:
+    """Verify the session user still exists and is active (disabled/pending
+    accounts are locked out immediately, including existing sessions)."""
+    user_id = request.session.get("user_id")
+    if not user_id:
+        return False
+    user = get_user_by_id(user_id)
+    return bool(user and user.get("status", "active") == "active")
+
+
+def _public_base(request: Request) -> str:
+    """External base URL of the app (with the /flight prefix stripped by nginx)."""
+    if PUBLIC_URL:
+        return PUBLIC_URL
+    proto = request.url.scheme
+    if os.environ.get("POCKET_TRUSTED_PROXY", "").lower() in ("1", "true", "yes"):
+        forwarded = request.headers.get("x-forwarded-proto")
+        if forwarded:
+            proto = forwarded.split(",")[0].strip()
+    host = request.headers.get("host") or request.url.netloc
+    return f"{proto}://{host}/flight"
+
+
 def require_auth(request: Request):
     if not request.session.get("authenticated") or not request.session.get("user_id"):
+        return RedirectResponse(url="/flight/login", status_code=303)
+    if not _session_user_active(request):
+        request.session.clear()
         return RedirectResponse(url="/flight/login", status_code=303)
     return None
 
 
 def require_api_auth(request: Request):
     if not request.session.get("authenticated") or not request.session.get("user_id"):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    if not _session_user_active(request):
+        request.session.clear()
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     return None
 
@@ -344,7 +387,8 @@ def get_stats(owner_id=None, is_admin=False):
 async def login_page(request: Request):
     if request.session.get("authenticated") and request.session.get("user_id"):
         return RedirectResponse(url="/flight/", status_code=303)
-    return templates.TemplateResponse(request, "login.html", {})
+    return templates.TemplateResponse(request, "login.html",
+                                      {"registration": REGISTRATION_MODE})
 
 
 @app.post("/login")
@@ -359,6 +403,10 @@ async def login(request: Request):
     pwd = body.get("pass", "")
     db_user = verify_user(user, pwd)
     if db_user:
+        if db_user.get("status", "active") != "active":
+            msg = ("Account pending admin approval" if db_user.get("status") == "pending"
+                   else "Account disabled")
+            return JSONResponse({"error": msg}, status_code=403)
         request.session["authenticated"] = True
         request.session["user_id"] = db_user["id"]
         request.session["username"] = db_user["username"]
@@ -379,6 +427,217 @@ def require_admin(request: Request):
     if request.session.get("role") != "admin":
         return JSONResponse({"error": "forbidden"}, status_code=403)
     return None
+
+
+@app.get("/register", response_class=HTMLResponse)
+async def register_page(request: Request):
+    if REGISTRATION_MODE == "off":
+        return JSONResponse({"error": "registration is disabled"}, status_code=404)
+    return templates.TemplateResponse(request, "register.html", {"mode": REGISTRATION_MODE})
+
+
+@app.post("/api/register")
+async def api_register(request: Request):
+    if REGISTRATION_MODE == "off":
+        return JSONResponse({"error": "registration is disabled"}, status_code=404)
+    key = f"register:{client_ip(request)}"
+    if not register_limiter.allow(key, REGISTRATION_LIMIT, REGISTRATION_WINDOW):
+        retry = register_limiter.retry_after(key, REGISTRATION_WINDOW)
+        return JSONResponse({"error": "Too many attempts, try again later"},
+                            status_code=429, headers={"Retry-After": str(retry)})
+    body = await request.json()
+    username = body.get("username", "").strip()
+    password = body.get("password", "")
+    email = (body.get("email") or "").strip().lower()
+    consent = body.get("consent") is True
+
+    if not username or not password:
+        return JSONResponse({"error": "username and password are required"}, status_code=400)
+    if len(username) < 3:
+        return JSONResponse({"error": "username must be at least 3 characters"}, status_code=400)
+    if not consent:
+        return JSONResponse({"error": "you must accept the privacy policy"}, status_code=400)
+    if REGISTRATION_MODE == "confirm":
+        if not EMAIL_RE.match(email):
+            return JSONResponse({"error": "a valid email is required"}, status_code=400)
+        if not mailer.smtp_configured():
+            return JSONResponse({"error": "email sending is not configured on this server"},
+                                status_code=503)
+    elif email and not EMAIL_RE.match(email):
+        return JSONResponse({"error": "a valid email is required"}, status_code=400)
+    if email and get_user_by_email(email):
+        return JSONResponse({"error": "email already registered"}, status_code=409)
+
+    policy_error = validate_password(password)
+    if policy_error:
+        return JSONResponse({"error": policy_error}, status_code=400)
+
+    now = datetime.now(timezone.utc).isoformat()
+    if REGISTRATION_MODE == "confirm":
+        status = "pending"
+    elif REGISTRATION_MODE == "open":
+        status = "active"
+    else:
+        status = "pending"
+
+    user = create_user(username, password, role="viewer", status=status,
+                       email=email or None, privacy_accepted_at=now)
+    if not user:
+        return JSONResponse({"error": "username already exists"}, status_code=409)
+
+    if status == "pending" and REGISTRATION_MODE == "confirm":
+        token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        expires = (datetime.now(timezone.utc) + timedelta(seconds=CONFIRM_TTL_SECONDS)).isoformat()
+        create_confirm_token(user["id"], token_hash, expires)
+        activation_url = f"{_public_base(request)}/confirm?token={token}"
+        try:
+            mailer.send_activation_email(email, activation_url, username)
+        except Exception:
+            logging.getLogger(__name__).exception("activation email failed for %s", username)
+            return JSONResponse({"error": "could not send the confirmation email"},
+                                status_code=500)
+
+    return {"ok": True, "status": status, "mode": REGISTRATION_MODE}
+
+
+@app.get("/confirm", response_class=HTMLResponse)
+async def confirm_page(request: Request, token: str = ""):
+    success = False
+    error = ""
+    if not token:
+        error = "Missing confirmation link"
+    else:
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        user = get_confirm_token_user(token_hash)
+        if user:
+            activate_user(user["id"])
+            clear_confirm_token(user["id"])
+            success = True
+        else:
+            error = "Invalid or expired confirmation link"
+    return templates.TemplateResponse(request, "confirm.html",
+                                      {"success": success, "error": error, "token": token})
+
+
+@app.get("/privacy", response_class=HTMLResponse)
+async def privacy_page(request: Request):
+    return templates.TemplateResponse(request, "privacy.html", {})
+
+
+@app.get("/reset-password", response_class=HTMLResponse)
+async def reset_password_page(request: Request, token: str = ""):
+    return templates.TemplateResponse(request, "reset_password.html", {"token": token})
+
+
+@app.post("/api/reset-password")
+async def api_reset_password_submit(request: Request):
+    key = f"reset:{client_ip(request)}"
+    if not password_limiter.allow(key, PASSWORD_LIMIT, PASSWORD_WINDOW):
+        retry = password_limiter.retry_after(key, PASSWORD_WINDOW)
+        return JSONResponse({"error": "Too many attempts, try again later"},
+                            status_code=429, headers={"Retry-After": str(retry)})
+    body = await request.json()
+    token = body.get("token", "")
+    password = body.get("password", "")
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    user = get_reset_token_user(token_hash)
+    if not user:
+        return JSONResponse({"error": "invalid or expired reset token"}, status_code=400)
+    policy_error = validate_password(password)
+    if policy_error:
+        return JSONResponse({"error": policy_error}, status_code=400)
+    change_password(user["id"], password)
+    clear_reset_token(user["id"])
+    return {"ok": True}
+
+
+@app.post("/api/users/{user_id}/reset-password")
+async def api_issue_reset_password(user_id: int, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    forbidden = require_admin(request)
+    if forbidden:
+        return forbidden
+    user = get_user_by_id(user_id)
+    if not user:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    expires = (datetime.now(timezone.utc) + timedelta(seconds=RESET_TOKEN_TTL_SECONDS)).isoformat()
+    create_reset_token(user_id, token_hash, expires)
+    return {"reset_url": f"/reset-password?token={token}"}
+
+
+@app.get("/account", response_class=HTMLResponse)
+async def account_page(request: Request):
+    redirect = require_auth(request)
+    if redirect:
+        return redirect
+    me = _current(request)
+    user = get_user_by_id(me["user_id"])
+    return templates.TemplateResponse(request, "account.html", {"user": user})
+
+
+@app.put("/api/account")
+async def api_account_update(request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    body = await request.json()
+    username = body.get("username", "").strip()
+    email = (body.get("email") or "").strip().lower()
+    if not username:
+        return JSONResponse({"error": "username required"}, status_code=400)
+    if len(username) < 3:
+        return JSONResponse({"error": "username must be at least 3 characters"}, status_code=400)
+    if email and not EMAIL_RE.match(email):
+        return JSONResponse({"error": "a valid email is required"}, status_code=400)
+    user = update_user(me["user_id"], username=username, email=email or None)
+    if not user:
+        return JSONResponse({"error": "username or email already in use"}, status_code=409)
+    request.session["username"] = user["username"]
+    return {"ok": True, "username": user["username"], "email": user.get("email") or ""}
+
+
+@app.post("/api/account/change-password")
+async def api_account_change_password(request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    key = f"password:{client_ip(request)}"
+    if not password_limiter.allow(key, PASSWORD_LIMIT, PASSWORD_WINDOW):
+        retry = password_limiter.retry_after(key, PASSWORD_WINDOW)
+        return JSONResponse({"error": "Too many attempts, try again later"},
+                            status_code=429, headers={"Retry-After": str(retry)})
+    me = _current(request)
+    body = await request.json()
+    current_password = body.get("current_password", "")
+    new_password = body.get("password", "")
+    if not verify_user(me["username"], current_password):
+        return JSONResponse({"error": "current password is incorrect"}, status_code=400)
+    policy_error = validate_password(new_password)
+    if policy_error:
+        return JSONResponse({"error": policy_error}, status_code=400)
+    change_password(me["user_id"], new_password)
+    return {"ok": True}
+
+
+@app.put("/api/account/preferences")
+async def api_account_preferences(request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    body = await request.json()
+    prefs = body.get("preferences", {})
+    if not isinstance(prefs, dict):
+        return JSONResponse({"error": "preferences must be an object"}, status_code=400)
+    allowed = {"theme"}
+    set_user_preferences(me["user_id"], {k: v for k, v in prefs.items() if k in allowed})
+    return {"ok": True}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -675,7 +934,7 @@ async def api_import_gpx(filename: str, request: Request, file: UploadFile = Fil
             if time_str.endswith("Z"):
                 time_str = time_str[:-1] + "+00:00"
             try:
-                from datetime import datetime, timezone
+                from datetime import datetime, timezone, timedelta
                 dt = datetime.fromisoformat(time_str)
                 return dt.timestamp()
             except ValueError:
@@ -1481,7 +1740,8 @@ async def api_create_user(request: Request):
     user = create_user(username, password, role)
     if not user:
         return JSONResponse({"error": "username already exists"}, status_code=409)
-    return {"id": user["id"], "username": user["username"], "role": user["role"]}
+    return {"id": user["id"], "username": user["username"],
+            "role": user["role"], "status": user["status"]}
 
 
 @app.put("/api/users/{user_id}")
@@ -1493,14 +1753,22 @@ async def api_update_user(user_id: int, request: Request):
     if forbidden:
         return forbidden
     body = await request.json()
+    status = body.get("status")
+    if status is not None and status not in ("active", "pending", "disabled"):
+        return JSONResponse({"error": "status must be active, pending or disabled"},
+                            status_code=400)
+    if status == "disabled" and user_id == request.session.get("user_id"):
+        return JSONResponse({"error": "you cannot disable your own account"}, status_code=400)
     user = update_user(
         user_id,
         username=body.get("username"),
         role=body.get("role"),
+        status=status,
     )
     if not user:
         return JSONResponse({"error": "not found"}, status_code=404)
-    return {"id": user["id"], "username": user["username"], "role": user["role"]}
+    return {"id": user["id"], "username": user["username"],
+            "role": user["role"], "status": user["status"]}
 
 
 @app.delete("/api/users/{user_id}")

@@ -158,7 +158,9 @@ def test_rate_limiter_per_key():
 # --- #9 require_auth coverage ---
 
 PUBLIC_PATHS = {"/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc",
-                "/api/health", "/login", "/logout"}
+                "/api/health", "/login", "/logout",
+                "/register", "/api/register", "/reset-password",
+                "/confirm", "/privacy"}
 
 
 def _fill_params(path: str) -> str:

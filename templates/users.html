@@ -12,23 +12,36 @@
       <thead>
         <tr class="bg-gray-50 dark:bg-gray-900/50 text-left">
           <th class="px-4 py-3 font-semibold text-gray-600 dark:text-gray-400">Username</th>
+          <th class="px-4 py-3 font-semibold text-gray-600 dark:text-gray-400">Email</th>
           <th class="px-4 py-3 font-semibold text-gray-600 dark:text-gray-400">Role</th>
+          <th class="px-4 py-3 font-semibold text-gray-600 dark:text-gray-400">Status</th>
           <th class="px-4 py-3 font-semibold text-gray-600 dark:text-gray-400">Created</th>
           <th class="px-4 py-3 font-semibold text-gray-600 dark:text-gray-400">Actions</th>
         </tr>
       </thead>
       <tbody id="usersBody" class="divide-y divide-gray-100 dark:divide-gray-700">
         {% for u in users %}
-        <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition" data-id="{{ u.id }}" data-username="{{ u.username }}" data-role="{{ u.role }}">
+        <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition" data-id="{{ u.id }}" data-username="{{ u.username }}" data-role="{{ u.role }}" data-status="{{ u.status or 'active' }}" {% if u.username == request.session.get('username') %}data-self="1"{% endif %}>
           <td class="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{{ u.username }}</td>
+          <td class="px-4 py-3 text-gray-500 dark:text-gray-400">{{ u.email or '—' }}</td>
           <td class="px-4 py-3">
             <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium {% if u.role == 'admin' %}bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300{% else %}bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300{% endif %}">{{ u.role }}</span>
+          </td>
+          <td class="px-4 py-3">
+            <span class="status-badge status-{{ u.status or 'active' }} inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium">{{ u.status or 'active' }}</span>
           </td>
           <td class="px-4 py-3 text-gray-500 dark:text-gray-400">{{ u.created_at[:10] if u.created_at else '—' }}</td>
           <td class="px-4 py-3">
             <div class="flex gap-2">
               <button class="editUserBtn text-xs px-2.5 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition">Edit</button>
               <button class="changePwdBtn text-xs px-2.5 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition">Password</button>
+              <button class="resetLinkBtn text-xs px-2.5 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition">Reset Link</button>
+              {% if (u.status or 'active') == 'pending' %}
+              <button class="approveBtn text-xs px-2.5 py-1 rounded bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-200 dark:hover:bg-emerald-900/50 transition">Approve</button>
+              {% endif %}
+              {% if u.username != request.session.get('username') %}
+              <button class="toggleStatusBtn text-xs px-2.5 py-1 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-900/50 transition">{% if (u.status or 'active') == 'disabled' %}Enable{% else %}Disable{% endif %}</button>
+              {% endif %}
               <button class="deleteUserBtn text-xs px-2.5 py-1 rounded bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50 transition">Delete</button>
             </div>
           </td>
@@ -204,6 +217,54 @@ document.querySelectorAll('.deleteUserBtn').forEach(btn => {
     } else {
       alert(data.error || 'Error');
     }
+  });
+});
+
+document.querySelectorAll('.resetLinkBtn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const tr = btn.closest('tr');
+    const r = await fetch('/flight/api/users/' + tr.dataset.id + '/reset-password', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'}
+    });
+    if (r.ok) {
+      const d = await r.json();
+      const url = window.location.origin + '/flight' + d.reset_url;
+      const copied = navigator.clipboard ? await navigator.clipboard.writeText(url).then(() => true).catch(() => false) : false;
+      if (copied) { alert('Reset link copied to clipboard'); }
+      else { prompt('Password reset link (24h):', url); }
+    } else {
+      const d = await r.json().catch(() => ({}));
+      alert(d.error || 'Error');
+    }
+  });
+});
+
+async function setStatus(tr, status) {
+  const r = await fetch('/flight/api/users/' + tr.dataset.id, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({status: status})
+  });
+  if (r.ok) {
+    window.location.reload();
+  } else {
+    const d = await r.json().catch(() => ({}));
+    alert(d.error || 'Error');
+  }
+}
+
+document.querySelectorAll('.approveBtn').forEach(btn => {
+  btn.addEventListener('click', () => setStatus(btn.closest('tr'), 'active'));
+});
+
+document.querySelectorAll('.toggleStatusBtn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const tr = btn.closest('tr');
+    const current = tr.dataset.status;
+    const next = current === 'disabled' ? 'active' : 'disabled';
+    if (next === 'disabled' && !confirm('Disable user "' + tr.dataset.username + '"? They will be signed out immediately.')) return;
+    setStatus(tr, next);
   });
 });
 </script>

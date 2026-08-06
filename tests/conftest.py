@@ -86,6 +86,7 @@ def client(monkeypatch, tmp_path):
     import app as app_mod
     app_mod.login_limiter.clear()
     app_mod.password_limiter.clear()
+    app_mod.register_limiter.clear()
     monkeypatch.setattr(app_mod, "LOG_DIR", tmp_path / "logs")
     (tmp_path / "logs").mkdir(exist_ok=True)
     from fastapi.testclient import TestClient

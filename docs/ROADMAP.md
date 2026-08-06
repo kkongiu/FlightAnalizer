@@ -5,7 +5,7 @@ la fase di implementazione e la lista è in ordine di esecuzione: ogni fase va
 completata prima di passare alla successiva.
 
 Ogni voce corrisponde a un'issue GitHub: il numero `[#N]` è il riferimento.
-Stato: **F0, F1 completate**; F2–F8 pending.
+Stato: **F0, F1, F2 completate** (F2 include registrazione con conferma via email e consenso privacy); F3–F8 pending.
 
 ---
 
@@ -28,10 +28,10 @@ Stato: **F0, F1 completate**; F2–F8 pending.
 
 ## F2 · Account
 
-- [ ] `[F2][ACCOUNT]` Pagina di registrazione pubblica (abilitabile) con validazione e hash PBKDF2 — [#12](https://github.com/kkongiu/FlightAnalizer/issues/12)
-- [ ] `[F2][ACCOUNT]` Flusso reset password (token sicuro + email/config SMTP o link via admin) — [#13](https://github.com/kkongiu/FlightAnalizer/issues/13)
-- [ ] `[F2][ACCOUNT]` Gestione account self-service: cambio password, cambio dati, preferenze — [#14](https://github.com/kkongiu/FlightAnalizer/issues/14)
-- [ ] `[F2][ACCOUNT]` Multi-account: inviti/approvazione admin, gestione ruoli, disattivazione account — [#15](https://github.com/kkongiu/FlightAnalizer/issues/15)
+- [x] `[F2][ACCOUNT]` Pagina di registrazione pubblica (abilitabile) con validazione e hash PBKDF2 — [#12](https://github.com/kkongiu/FlightAnalizer/issues/12)
+- [x] `[F2][ACCOUNT]` Flusso reset password (token sicuro + email/config SMTP o link via admin) — [#13](https://github.com/kkongiu/FlightAnalizer/issues/13)
+- [x] `[F2][ACCOUNT]` Gestione account self-service: cambio password, cambio dati, preferenze — [#14](https://github.com/kkongiu/FlightAnalizer/issues/14)
+- [x] `[F2][ACCOUNT]` Multi-account: inviti/approvazione admin, gestione ruoli, disattivazione account — [#15](https://github.com/kkongiu/FlightAnalizer/issues/15)
 
 ## F3 · Isolamento dati
 
@@ -72,6 +72,7 @@ Stato: **F0, F1 completate**; F2–F8 pending.
 - [ ] `[F7][SHARING]` Immagine/anteprima condivisibile (og:image, open graph) e eventuale download GPX dal link pubblico — [#38](https://github.com/kkongiu/FlightAnalizer/issues/38)
 - [ ] `[F7][SOCIAL]` Commenti/like sui voli condivisi pubblicamente — [#39](https://github.com/kkongiu/FlightAnalizer/issues/39)
 - [ ] `[F7][SOCIAL]` Gruppi/team: condividere un volo solo con un gruppo specifico — [#40](https://github.com/kkongiu/FlightAnalizer/issues/40)
+- [ ] `[F7][SOCIAL]` Amici/contatti stile Strava-Garmin: richieste di amicizia, feed dei voli pubblici dei propri contatti, visibilità per-volo (pubblico/amici/privato)
 
 ## F8 · Dominio e integrazione
 
