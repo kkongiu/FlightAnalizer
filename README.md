@@ -24,7 +24,7 @@
 | **Notes & Tags** | Free-form notes per flight, tag system for filtering |
 | **Export** | GPX and KML download for use in Google Earth / other tools |
 | **3D Replay** *(experimental)* | Three.js terrain with elevation, camera modes (Ground/FPV/Free), aircraft trail |
-| **Multi-User** | Admin and viewer roles with separate logins |
+| **Multi-User** | Admin and independent (indipendente) roles with separate logins |
 | **Dark / Light Theme** | System-aware toggle, persisted in localStorage |
 | **PWA Ready** | Service worker for offline-capable install on mobile |
 | **Responsive** | Tailwind CSS polished UI, works on desktop and mobile |
@@ -64,7 +64,7 @@ POCKET_USER=admin POCKET_PASS=changeme uvicorn app:app --host 0.0.0.0 --port 800
 Open **http://localhost:8000** and log in with `admin` / `changeme`.
 
 > The first user is seeded from `POCKET_USER` / `POCKET_PASS` environment variables.  
-> After that, you can create additional users (viewer or admin) from the **Users** page.
+> After that, you can create additional users (indipendente or admin) from the **Users** page.
 
 ---
 
@@ -441,7 +441,7 @@ Done so far:
 - [x] Interactive map with playback
 - [x] Telemetry charts (altitude, speed, RSSI, battery, RC)
 - [x] Vehicle management
-- [x] Multi-user with roles (admin/viewer)
+- [x] Multi-user with roles (admin/indipendente)
 - [x] Tailwind UI polish
 - [x] INAV waypoint mission builder
 - [x] Production hardening (SQLite WAL, systemd, deploy checklist)
