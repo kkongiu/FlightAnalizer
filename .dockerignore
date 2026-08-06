@@ -1,0 +1,16 @@
+.git/
+.github/
+venv/
+__pycache__/
+*.pyc
+*.pytest_cache/
+tests/
+docs/
+node_modules/
+data/
+*.csv
+*.png
+*.db
+.env
+package-lock.json
+package.json

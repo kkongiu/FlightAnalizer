@@ -41,6 +41,10 @@ def _summary(filename):
 
 def _login(client, username, password):
     r = client.post("/login", json={"user": username, "pass": password})
+    if r.status_code == 200:
+        token = r.json().get("csrf_token")
+        if token:
+            client.headers["X-CSRF-Token"] = token
     return r.status_code == 200
 
 

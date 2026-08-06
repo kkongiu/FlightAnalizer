@@ -7,7 +7,7 @@ from pathlib import Path
 from datetime import datetime
 from models import FlightSummary, Vehicle
 
-DATA_DIR = Path(__file__).parent / "data"
+DATA_DIR = Path(os.environ.get("POCKET_DATA_DIR", Path(__file__).parent / "data"))
 DATA_DIR.mkdir(exist_ok=True)
 DB_PATH = DATA_DIR / "flights.db"
 

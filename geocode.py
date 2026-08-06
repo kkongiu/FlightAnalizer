@@ -1,10 +1,11 @@
 import json
+import os
 import re
 from pathlib import Path
 
 import httpx
 
-GEO_CACHE_FILE = Path(__file__).parent / "data" / "geocache.json"
+GEO_CACHE_FILE = Path(os.environ.get("POCKET_DATA_DIR", Path(__file__).parent / "data")) / "geocache.json"
 _cache = None
 
 

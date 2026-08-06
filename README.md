@@ -82,6 +82,24 @@ pip install -r requirements.txt
 
 ### 2. Systemd service
 
+Store credentials in an environment file readable only by the service user,
+**never** inline in the unit:
+
+```bash
+sudo mkdir -p /etc/pocket-log-analyzer
+sudo tee /etc/pocket-log-analyzer/env > /dev/null <<'EOF'
+POCKET_USER=admin
+POCKET_PASS=your-secure-password
+POCKET_SESSION_SECRET=generate-a-32+char-random-secret
+EOF
+sudo chown root:www-data /etc/pocket-log-analyzer/env
+sudo chmod 640 /etc/pocket-log-analyzer/env
+```
+
+> `POCKET_SESSION_SECRET` signs the session cookies: set a long random value
+> (at least 32 characters, e.g. `openssl rand -hex 32`). If unset, the app
+> generates a persistent secret stored in `data/.session_secret` (mode 600).
+
 Create `/etc/systemd/system/pocket-log-analyzer.service`:
 
 ```ini
@@ -92,11 +110,16 @@ After=network.target
 [Service]
 User=www-data
 WorkingDirectory=/opt/pocket-log-analyzer
-Environment="POCKET_USER=admin"
-Environment="POCKET_PASS=your-secure-password"
+EnvironmentFile=/etc/pocket-log-analyzer/env
 ExecStart=/opt/pocket-log-analyzer/venv/bin/uvicorn app:app --host 127.0.0.1 --port 8099
 Restart=always
 RestartSec=5
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/pocket-log-analyzer
+
 
 [Install]
 WantedBy=multi-user.target
@@ -144,6 +167,87 @@ server {
 ```bash
 sudo certbot --nginx -d your-domain.com
 ```
+
+---
+
+## Docker Deployment
+
+```bash
+POCKET_USER=admin POCKET_PASS=your-secure-password docker compose up -d
+```
+
+- The app listens on `http://localhost:8000`; `data/` on the host is mounted at
+  `/data` inside the container (DB, CSVs under `data/logs/`, photos, backups).
+- Automatic daily backups are enabled by default
+  (`BACKUP_ENABLED=1`, retention `BACKUP_RETENTION_DAYS=30`).
+- Health check: `GET /api/health`.
+
+The image can also be built directly:
+
+```bash
+docker build -t pocket-log-analyzer .
+docker run -d -p 8000:8000 \
+  -e POCKET_USER=admin -e POCKET_PASS=your-secure-password \
+  -v "$(pwd)/data:/data" pocket-log-analyzer
+```
+
+---
+
+## Backups & Restore
+
+Backups are triggered automatically (daily, `BACKUP_ENABLED=1`) or manually:
+
+- **Web (admin):** `POST /api/backup` creates a backup, `GET /api/backups` lists them.
+- **CLI:** `python backup.py backup` (or `list` / `restore FILE`).
+
+Each archive (`data/backups/backup-<timestamp>.tar.gz`) contains a consistent
+SQLite snapshot, every flight CSV and the vehicle photos, plus a manifest.
+Restore overwrites the current DB (server restart recommended afterwards):
+
+```bash
+python backup.py restore data/backups/backup-20260806-120000.tar.gz
+```
+
+Backups outside the server are recommended (rclone/rsync/borg) with the
+retention policy already handled locally.
+
+---
+
+## Logging & Monitoring
+
+- Errors are written to `data/app.log` (configurable via `POCKET_LOG_FILE`)
+  and to stdout/stderr for `journalctl` / Docker logs.
+- `GET /api/health` is an unauthenticated health check for uptime monitors
+  (Uptime Kuma, cron, etc.) reporting app version and DB status.
+
+---
+
+## Security
+
+- **Session cookies** — `HttpOnly`, `SameSite=Lax`, `Secure`; signed with
+  `POCKET_SESSION_SECRET` (falls back to a generated `data/.session_secret`).
+- **CSRF protection** — every authenticated `POST`/`PUT`/`DELETE`/`PATCH`
+  requires the `X-CSRF-Token` header (the frontend adds it automatically from
+  a per-page meta tag); HTML forms carry a hidden `csrf_token` field.
+- **Rate limiting** — brute-force protection on login
+  (`POCKET_LOGIN_RATE_LIMIT`, default 10 attempts / 15 min per IP) and on
+  password changes (`POCKET_PASSWORD_RATE_LIMIT`, default 5 / 15 min).
+  Trust `X-Forwarded-For` only behind a proxy with `POCKET_TRUSTED_PROXY=1`.
+- **Password policy** — at least 10 characters and 3 of 4 character classes
+  (lowercase, uppercase, digits, symbols) on user creation and password change.
+- **Auth coverage** — all data routes and API endpoints require an
+  authenticated session; health check, login and static assets are public.
+
+### Environment variables
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `POCKET_SESSION_SECRET` | *(generated)* | Session signing secret (≥ 32 chars) |
+| `POCKET_LOGIN_RATE_LIMIT` | `10` | Max login attempts per window per IP |
+| `POCKET_LOGIN_RATE_WINDOW` | `900` | Login rate window in seconds |
+| `POCKET_PASSWORD_RATE_LIMIT` | `5` | Max password changes per window per IP |
+| `POCKET_PASSWORD_RATE_WINDOW` | `900` | Password rate window in seconds |
+| `POCKET_TRUSTED_PROXY` | unset | Set `1` to trust `X-Forwarded-For` |
 
 ---
 
@@ -300,11 +404,11 @@ Done so far:
 - [x] Tailwind UI polish
 - [x] INAV waypoint mission builder
 - [x] Production hardening (SQLite WAL, systemd, deploy checklist)
+- [x] **F0** — versioned DB migrations + Docker, automated backups + restore, server logging + health check, E2E API test suite + CI
+- [x] **F1 · Sicurezza** — rate limiting, CSRF, secure session cookies, password policy
 
 Next (by phase):
 
-- **F0 · Fondamenta** — versioned DB migrations + Docker, automated backups, monitoring, E2E test suite + CI
-- **F1 · Sicurezza** — rate limiting, CSRF, secure session cookies, password policy
 - **F2 · Account** — public registration, password reset, self-service account
 - **F3 · Isolamento** — per-user flight ownership (`owner_id`), access control, isolation tests
 - **F4 · Privacy** — account deletion + data export, audit log, privacy policy

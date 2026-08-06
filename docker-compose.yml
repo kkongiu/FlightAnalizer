@@ -1,0 +1,20 @@
+services:
+  app:
+    build: .
+    image: pocket-log-analyzer:latest
+    container_name: pocket-log-analyzer
+    ports:
+      - "8000:8000"
+    environment:
+      POCKET_USER: ${POCKET_USER:-admin}
+      POCKET_PASS: ${POCKET_PASS:-changeme}
+      POCKET_SESSION_SECRET: ${POCKET_SESSION_SECRET:-}
+      POCKET_DATA_DIR: /data
+      POCKET_LOG_DIR: /data/logs
+      POCKET_LOG_FILE: /data/logs/app.log
+      BACKUP_ENABLED: ${BACKUP_ENABLED:-1}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      APP_VERSION: ${APP_VERSION:-dev}
+    volumes:
+      - ./data:/data
+    restart: unless-stopped

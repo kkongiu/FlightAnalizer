@@ -84,6 +84,8 @@ def client(monkeypatch, tmp_path):
     database.init_db()
     monkeypatch.setenv("FLIGHT_ANALYZER_SKIP_STARTUP_SYNC", "1")
     import app as app_mod
+    app_mod.login_limiter.clear()
+    app_mod.password_limiter.clear()
     monkeypatch.setattr(app_mod, "LOG_DIR", tmp_path / "logs")
     (tmp_path / "logs").mkdir(exist_ok=True)
     from fastapi.testclient import TestClient

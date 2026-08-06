@@ -90,7 +90,12 @@
                 if (res.ok) {
                     window.location.href = '/flight/';
                 } else {
-                    err.textContent = 'Invalid username or password';
+                    let msg = 'Invalid username or password';
+                    try {
+                        const body = await res.json();
+                        if (body && body.error) msg = body.error;
+                    } catch(e) {}
+                    err.textContent = msg;
                 }
             } catch(e) {
                 err.textContent = 'Connection error';

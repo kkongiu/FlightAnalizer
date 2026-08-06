@@ -1,10 +1,13 @@
+import asyncio
+import logging
 import os
 import re
 import secrets
 import math
 import json
+from contextlib import asynccontextmanager
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from collections import defaultdict
 import xml.etree.ElementTree as ET
 from xml.sax.saxutils import escape as xml_escape
@@ -30,20 +33,61 @@ from database import (save_flight, get_all_flights, get_flight, delete_flight,
                       recalculate_home_distances, set_flight_track_source,
                       count_user_data, delete_user_cascade, backup_database)
 import httpx
+import backup
 from mission import (clean_coords, build_mission_from_params, track_meta,
                      validate_waypoints, render_mission_xml)
 from fastapi.responses import Response
+from security import RateLimiter, client_ip, tokens_equal, validate_password
 
-SECRET_FILE = Path(__file__).parent / "data" / ".session_secret"
+APP_VERSION = os.environ.get("APP_VERSION", "dev")
+SECRET_FILE = database.DATA_DIR / ".session_secret"
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+
+LOGIN_LIMIT = int(os.environ.get("POCKET_LOGIN_RATE_LIMIT", "10"))
+LOGIN_WINDOW = int(os.environ.get("POCKET_LOGIN_RATE_WINDOW", "900"))
+PASSWORD_LIMIT = int(os.environ.get("POCKET_PASSWORD_RATE_LIMIT", "5"))
+PASSWORD_WINDOW = int(os.environ.get("POCKET_PASSWORD_RATE_WINDOW", "900"))
+
+login_limiter = RateLimiter()
+password_limiter = RateLimiter()
+
+
+def _setup_logging():
+    log_file = Path(os.environ.get("POCKET_LOG_FILE", str(database.DATA_DIR / "app.log")))
+    handlers = [logging.StreamHandler()]
+    try:
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        handlers.append(logging.FileHandler(log_file))
+    except OSError:
+        pass
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        handlers=handlers,
+    )
+
+
+_setup_logging()
+logger = logging.getLogger("pocket-log-analyzer")
 
 
 def _get_session_secret() -> str:
-    SECRET_FILE.parent.mkdir(exist_ok=True)
+    """Session signing secret: POCKET_SESSION_SECRET env var wins, otherwise a
+    persistent per-deployment secret stored next to the DB."""
+    env_secret = os.environ.get("POCKET_SESSION_SECRET", "").strip()
+    if env_secret:
+        if len(env_secret) < 32:
+            raise RuntimeError("POCKET_SESSION_SECRET must be at least 32 characters")
+        return env_secret
+    SECRET_FILE.parent.mkdir(parents=True, exist_ok=True)
     if SECRET_FILE.exists():
         return SECRET_FILE.read_text().strip()
     secret = secrets.token_hex(32)
     SECRET_FILE.write_text(secret)
+    try:
+        os.chmod(SECRET_FILE, 0o600)
+    except OSError:
+        pass
     return secret
 
 
@@ -93,7 +137,51 @@ def fmt_duration(seconds):
     return f"{s}s"
 
 
-app = FastAPI(title="Pocket Log Analyzer")
+async def _scheduled_backup_loop():
+    """Daily automatic backup. Enabled only when BACKUP_ENABLED is set."""
+    while True:
+        try:
+            await asyncio.to_thread(backup.run_backup, None, LOG_DIR, None)
+            logger.info("scheduled backup completed")
+        except Exception:
+            logger.exception("scheduled backup failed")
+        await asyncio.sleep(24 * 3600)
+
+
+@asynccontextmanager
+async def lifespan(app):
+    if os.environ.get("BACKUP_ENABLED", "").lower() in ("1", "true", "yes"):
+        asyncio.create_task(_scheduled_backup_loop())
+    yield
+
+
+app = FastAPI(title="Pocket Log Analyzer", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def csrf_protect(request: Request, call_next):
+    """Validate a CSRF token on state-changing requests for authenticated
+    sessions, and expose the token to templates for the frontend.
+
+    Registered before SessionMiddleware so the session is already loaded when
+    this middleware runs."""
+    session = request.session
+    if session.get("user_id"):
+        if not session.get("csrf_token"):
+            session["csrf_token"] = secrets.token_urlsafe(32)
+        request.state.csrf_token = session["csrf_token"]
+        if request.method in ("POST", "PUT", "DELETE", "PATCH"):
+            provided = request.headers.get("X-CSRF-Token", "")
+            if not provided and request.headers.get("content-type", "").startswith(
+                "application/x-www-form-urlencoded"
+            ):
+                form = await request.form()
+                provided = form.get("csrf_token", "")
+            if not tokens_equal(provided, session["csrf_token"]):
+                return JSONResponse({"error": "CSRF validation failed"}, status_code=403)
+    return await call_next(request)
+
+
 app.add_middleware(
     SessionMiddleware,
     secret_key=_get_session_secret(),
@@ -105,7 +193,7 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 templates.env.filters["dict2str"] = dict2str
 templates.env.filters["fmt_duration"] = fmt_duration
 templates.env.globals["now"] = datetime.now
-LOG_DIR = Path(__file__).parent
+LOG_DIR = Path(os.environ.get("POCKET_LOG_DIR", Path(__file__).parent))
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -123,6 +211,33 @@ async def security_headers(request: Request, call_next):
     elif not request.url.path.startswith("/static/"):
         response.headers["Cache-Control"] = "no-cache, must-revalidate"
     return response
+
+
+@app.middleware("http")
+async def error_logging(request: Request, call_next):
+    try:
+        return await call_next(request)
+    except Exception:
+        logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+        raise
+
+
+@app.get("/api/health")
+async def api_health():
+    """Lightweight, unauthenticated health check for uptime monitors."""
+    db_ok = True
+    try:
+        conn = database._get_conn()
+        conn.execute("SELECT 1").fetchone()
+        conn.close()
+    except Exception:
+        db_ok = False
+    return {
+        "status": "ok" if db_ok else "degraded",
+        "version": APP_VERSION,
+        "time": datetime.now(timezone.utc).isoformat(),
+        "database": "ok" if db_ok else "error",
+    }
 
 
 def require_auth(request: Request):
@@ -234,6 +349,11 @@ async def login_page(request: Request):
 
 @app.post("/login")
 async def login(request: Request):
+    key = f"login:{client_ip(request)}"
+    if not login_limiter.allow(key, LOGIN_LIMIT, LOGIN_WINDOW):
+        retry = login_limiter.retry_after(key, LOGIN_WINDOW)
+        return JSONResponse({"error": "Too many login attempts, try again later"},
+                            status_code=429, headers={"Retry-After": str(retry)})
     body = await request.json()
     user = body.get("user", "")
     pwd = body.get("pass", "")
@@ -243,7 +363,9 @@ async def login(request: Request):
         request.session["user_id"] = db_user["id"]
         request.session["username"] = db_user["username"]
         request.session["role"] = db_user["role"]
-        return {"ok": True}
+        csrf_token = secrets.token_urlsafe(32)
+        request.session["csrf_token"] = csrf_token
+        return {"ok": True, "csrf_token": csrf_token}
     return JSONResponse({"error": "Invalid credentials"}, status_code=401)
 
 
@@ -594,7 +716,10 @@ async def api_import_gpx(filename: str, request: Request, file: UploadFile = Fil
                 if gc[3] == 0:
                     gc[3] = orig[3]
                 for i in range(5, len(orig)):
-                    gc[i] = orig[i]
+                    if i >= len(gc):
+                        gc.append(orig[i])
+                    else:
+                        gc[i] = orig[i]
 
         # Overlay live nav telemetry from the CSV log onto the GPX track so the
         # extended data (attitude, RC input, switches, flight mode, battery, LQ,
@@ -1278,6 +1403,35 @@ async def api_battery_per_vehicle(request: Request):
                                          me["user_id"], me["is_admin"])
 
 
+# --- Backup (admin only) ---
+
+@app.get("/api/backups")
+async def api_list_backups(request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    forbidden = require_admin(request)
+    if forbidden:
+        return forbidden
+    return {"backups": backup.list_backups()}
+
+
+@app.post("/api/backup")
+async def api_run_backup(request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    forbidden = require_admin(request)
+    if forbidden:
+        return forbidden
+    try:
+        archive = await asyncio.to_thread(backup.run_backup, None, LOG_DIR, None)
+    except Exception as e:
+        logger.exception("manual backup failed")
+        return JSONResponse({"error": str(e)}, status_code=500)
+    return {"archive": archive.name, "path": str(archive)}
+
+
 # --- User management (admin only) ---
 
 @app.get("/users", response_class=HTMLResponse)
@@ -1317,6 +1471,11 @@ async def api_create_user(request: Request):
     role = body.get("role", "viewer")
     if not username or not password:
         return JSONResponse({"error": "username and password required"}, status_code=400)
+    if len(username) < 3:
+        return JSONResponse({"error": "username must be at least 3 characters"}, status_code=400)
+    policy_error = validate_password(password)
+    if policy_error:
+        return JSONResponse({"error": policy_error}, status_code=400)
     if role not in ("admin", "viewer"):
         return JSONResponse({"error": "role must be admin or viewer"}, status_code=400)
     user = create_user(username, password, role)
@@ -1399,10 +1558,18 @@ async def api_change_password(user_id: int, request: Request):
     denied = require_api_auth(request)
     if denied:
         return denied
+    key = f"password:{client_ip(request)}"
+    if not password_limiter.allow(key, PASSWORD_LIMIT, PASSWORD_WINDOW):
+        retry = password_limiter.retry_after(key, PASSWORD_WINDOW)
+        return JSONResponse({"error": "Too many attempts, try again later"},
+                            status_code=429, headers={"Retry-After": str(retry)})
     body = await request.json()
     new_password = body.get("password", "")
     if not new_password:
         return JSONResponse({"error": "password required"}, status_code=400)
+    policy_error = validate_password(new_password)
+    if policy_error:
+        return JSONResponse({"error": policy_error}, status_code=400)
     user = get_user_by_id(user_id)
     if not user:
         return JSONResponse({"error": "not found"}, status_code=404)

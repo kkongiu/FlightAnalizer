@@ -44,10 +44,13 @@ pianifica ~2× i dati per i backup.
 - [ ] Utente dedicato non-root per il servizio
 - [ ] Systemd hardening: `ProtectSystem=strict`, `NoNewPrivileges`, `PrivateTmp`,
       `ReadWritePaths` sulla sola cartella applicazione, `UMask=0027`
-- [ ] Credenziali (POCKET_USER/POCKET_PASS, segreto sessioni) in `EnvironmentFile`
-      con permessi 600, non in chiaro nel file unit
+- [ ] Credenziali (POCKET_USER/POCKET_PASS) e `POCKET_SESSION_SECRET` in
+      `EnvironmentFile` con permessi 640/600, non in chiaro nel file unit
+      (vedi README "Systemd service")
+- [ ] `POCKET_SESSION_SECRET` ≥ 32 caratteri (es. `openssl rand -hex 32`);
+      se assente l'app genera un segreto persistente in `data/.session_secret` (600)
 - [ ] Firewall: solo 80/443 + SSH
-- [ ] fail2ban su SSH (e sul login dell'app quando il rate limiting sarà attivo)
+- [ ] fail2ban su SSH (e sul login dell'app, già protetto da rate limiting interno)
 - [ ] `unattended-upgrades` solo per gli update di sicurezza
 - [ ] Log rotation (logrotate) per uvicorn e nginx
 

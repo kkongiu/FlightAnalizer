@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="/flight/static/style.css">
     <link rel="manifest" href="/flight/static/manifest.json">
     <meta name="theme-color" content="#0ea5e9">
+    <meta name="csrf-token" content="{{ request.state.csrf_token or '' }}">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
     <link rel="stylesheet" href="/flight/static/vendor/leaflet.css" />
@@ -33,6 +34,7 @@
                 {% endif %}
                 <button id="themeToggle" class="ml-1 px-2 py-1.5 rounded-lg text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition">🌙</button>
                 <form method="POST" action="/flight/logout" class="inline">
+                    <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token or '' }}">
                     <button type="submit" class="ml-1 px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">Logout</button>
                 </form>
             </nav>
@@ -48,6 +50,27 @@
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('/flight/static/sw.js');
     }
+    (function() {
+        const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+        const csrfToken = csrfMeta && csrfMeta.content;
+        if (csrfToken) {
+            const origFetch = window.fetch;
+            window.fetch = function(input, init) {
+                init = init || {};
+                const req = typeof input === 'string' ? null : input;
+                const method = (init.method || (req && req.method) || 'GET').toUpperCase();
+                if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
+                    if (req) {
+                        req.headers.set('X-CSRF-Token', csrfToken);
+                    } else {
+                        init.headers = new Headers(init.headers || {});
+                        init.headers.set('X-CSRF-Token', csrfToken);
+                    }
+                }
+                return origFetch.call(this, input, init);
+            };
+        }
+    })();
     (function() {
         const saved = localStorage.getItem('theme');
         if (saved === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
