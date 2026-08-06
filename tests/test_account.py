@@ -392,3 +392,64 @@ def test_disabled_user_cannot_login(client):
     client.put(f"/api/users/{uid}", json={"status": "disabled"})
     r = client.post("/login", json={"user": "locked", "pass": "CorrectHorse123"})
     assert r.status_code == 403
+
+
+def test_admin_create_user_with_email_and_status(client):
+    _login(client)
+    r = client.post("/api/users", json={"username": "carol", "password": "CorrectHorse123",
+                                        "role": "viewer", "status": "pending",
+                                        "email": "carol@example.com"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["email"] == "carol@example.com"
+    assert body["status"] == "pending"
+    row = next(u for u in client.get("/api/users").json() if u["username"] == "carol")
+    assert row["email"] == "carol@example.com"
+    assert row["status"] == "pending"
+
+
+def test_admin_create_user_invalid_email_rejected(client):
+    _login(client)
+    r = client.post("/api/users", json={"username": "carolb", "password": "CorrectHorse123",
+                                        "email": "not-an-email"})
+    assert r.status_code == 400
+
+
+def test_admin_create_user_invalid_status_rejected(client):
+    _login(client)
+    r = client.post("/api/users", json={"username": "carolc", "password": "CorrectHorse123",
+                                        "status": "bogus"})
+    assert r.status_code == 400
+
+
+def test_admin_create_user_duplicate_email_rejected(client):
+    _login(client)
+    assert client.post("/api/users", json={"username": "carold",
+                                           "password": "CorrectHorse123",
+                                           "email": "dup@example.com"}).status_code == 200
+    r = client.post("/api/users", json={"username": "carole",
+                                        "password": "CorrectHorse123",
+                                        "email": "dup@example.com"})
+    assert r.status_code == 409
+
+
+def test_admin_edit_user_email(client):
+    _login(client)
+    r = client.post("/api/users", json={"username": "carolf", "password": "CorrectHorse123"})
+    uid = r.json()["id"]
+    r = client.put(f"/api/users/{uid}", json={"email": "new@example.com"})
+    assert r.status_code == 200
+    assert r.json()["email"] == "new@example.com"
+    row = next(u for u in client.get("/api/users").json() if u["username"] == "carolf")
+    assert row["email"] == "new@example.com"
+
+
+def test_admin_edit_user_email_duplicate_rejected(client):
+    _login(client)
+    assert client.post("/api/users", json={"username": "carolg",
+                                           "password": "CorrectHorse123",
+                                           "email": "taken@example.com"}).status_code == 200
+    r = client.post("/api/users", json={"username": "carolh", "password": "CorrectHorse123"})
+    uid = r.json()["id"]
+    r = client.put(f"/api/users/{uid}", json={"email": "taken@example.com"})
+    assert r.status_code == 409

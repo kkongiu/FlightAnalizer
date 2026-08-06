@@ -1740,6 +1740,8 @@ async def api_create_user(request: Request):
     username = body.get("username", "").strip()
     password = body.get("password", "")
     role = body.get("role", "viewer")
+    email = (body.get("email") or "").strip().lower()
+    status = body.get("status") or "active"
     if not username or not password:
         return JSONResponse({"error": "username and password required"}, status_code=400)
     if len(username) < 3:
@@ -1749,11 +1751,18 @@ async def api_create_user(request: Request):
         return JSONResponse({"error": policy_error}, status_code=400)
     if role not in ("admin", "viewer"):
         return JSONResponse({"error": "role must be admin or viewer"}, status_code=400)
-    user = create_user(username, password, role)
+    if status not in ("active", "pending", "disabled"):
+        return JSONResponse({"error": "status must be active, pending or disabled"},
+                            status_code=400)
+    if email and not EMAIL_RE.match(email):
+        return JSONResponse({"error": "a valid email is required"}, status_code=400)
+    if email and get_user_by_email(email):
+        return JSONResponse({"error": "email already registered"}, status_code=409)
+    user = create_user(username, password, role, status=status, email=email or None)
     if not user:
         return JSONResponse({"error": "username already exists"}, status_code=409)
     return {"id": user["id"], "username": user["username"],
-            "role": user["role"], "status": user["status"]}
+            "role": user["role"], "status": user["status"], "email": user.get("email") or ""}
 
 
 @app.put("/api/users/{user_id}")
@@ -1771,16 +1780,25 @@ async def api_update_user(user_id: int, request: Request):
                             status_code=400)
     if status == "disabled" and user_id == request.session.get("user_id"):
         return JSONResponse({"error": "you cannot disable your own account"}, status_code=400)
+    email = None
+    if "email" in body:
+        email = (body.get("email") or "").strip().lower() or None
+        if email and not EMAIL_RE.match(email):
+            return JSONResponse({"error": "a valid email is required"}, status_code=400)
+        existing = get_user_by_email(email) if email else None
+        if existing and existing["id"] != user_id:
+            return JSONResponse({"error": "email already registered"}, status_code=409)
     user = update_user(
         user_id,
         username=body.get("username"),
         role=body.get("role"),
         status=status,
+        email=email if "email" in body else None,
     )
     if not user:
         return JSONResponse({"error": "not found"}, status_code=404)
     return {"id": user["id"], "username": user["username"],
-            "role": user["role"], "status": user["status"]}
+            "role": user["role"], "status": user["status"], "email": user.get("email") or ""}
 
 
 @app.delete("/api/users/{user_id}")
