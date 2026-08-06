@@ -662,7 +662,8 @@ async def flight_list(request: Request):
         return redirect
     me = _current(request)
     flights = get_all_flights(me["user_id"], me["is_admin"])
-    return templates.TemplateResponse(request, "flights.html", {"flights": flights})
+    return templates.TemplateResponse(request, "flights.html",
+                                      {"flights": flights, "is_admin": me["is_admin"]})
 
 
 @app.get("/report", response_class=HTMLResponse)
@@ -769,7 +770,7 @@ async def scan_logs(request: Request):
     imported = []
     for f in sorted(LOG_DIR.glob("*.csv")):
         key = f.name
-        if get_flight(key, me["user_id"], me["is_admin"]) is not None:
+        if get_flight(key) is not None:
             continue
         try:
             points = parse_log(f)
@@ -814,6 +815,12 @@ async def upload_log(request: Request, file: UploadFile = File(...)):
         if new_name:
             dest.rename(LOG_DIR / new_name)
             safe_name = new_name
+        existing = get_flight(safe_name)
+        if existing and existing.get("owner_id") not in (None, me["user_id"]):
+            (LOG_DIR / safe_name).unlink(missing_ok=True)
+            return JSONResponse(
+                {"error": "flight already registered to another user"},
+                status_code=409)
         summary = analyze(safe_name, points)
         default_v = get_default_vehicle(me["user_id"], me["is_admin"])
         if default_v:
@@ -866,7 +873,12 @@ async def api_flights(request: Request):
     if denied:
         return denied
     me = _current(request)
-    return get_all_flights(me["user_id"], me["is_admin"])
+    flights = get_all_flights(me["user_id"], me["is_admin"])
+    if me["is_admin"]:
+        owner = (request.query_params.get("owner") or "").strip()
+        if owner:
+            flights = [f for f in flights if f.get("owner_username") == owner]
+    return flights
 
 
 @app.get("/api/stats")

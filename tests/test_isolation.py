@@ -3,6 +3,14 @@ from database import (create_user, save_flight, create_vehicle, set_vehicle_phot
                       get_user)
 
 
+FIXTURE_CSV = """Date,Time,1RSS(dB),2RSS(dB),RQly(%),RSNR(dB),ANT,RFMD,TPWR(mW),TRSS(dB),TQly(%),TSNR(dB),FM,VSpd(m/s),Alt(m),GPS,GSpd(kmh),Hdg(°),Sats,RxBt(V),Curr(A),Capa(mAh),Bat%(%),Ptch(rad),Roll(rad),Yaw(rad),Rud,Ele,Thr,Ail,P1,SA,SB,SC,SD,SE,LSW,CH1(us),CH2(us),CH3(us),CH4(us),TxBat(V)
+2020-01-01,12:00:00.000,-70,-75,100,12,0,1,250,-70,100,11,OK,0.0,2.0,12.000000 -45.000000,0.0,0,12,16.8,0.5,0,100,0.00,0.00,0.00,0,0,0,0,0,1,0,0,0,0,0,988,988,988,988,8.4
+2020-01-01,12:00:00.500,-70,-75,100,12,0,1,250,-70,100,11,OK,0.0,2.1,12.000001 -44.999999,5.0,10,12,16.8,1.0,2,99,0.01,0.01,0.01,0,0,10,0,0,1,0,0,0,0,0,988,988,988,988,8.4
+2020-01-01,12:00:01.000,-70,-75,100,12,0,1,250,-70,100,11,OK,0.1,2.2,12.000002 -44.999998,8.0,20,12,16.8,1.5,3,99,0.02,0.02,0.02,0,0,15,0,0,1,0,0,0,0,0,988,988,988,988,8.4
+2020-01-01,12:00:01.500,-70,-75,100,12,0,1,250,-70,100,11,OK,0.1,2.3,12.000003 -44.999997,9.0,30,12,16.8,2.0,4,99,0.03,0.03,0.03,0,0,20,0,0,1,0,0,0,0,0,988,988,988,988,8.4
+"""
+
+
 def _summary(filename):
     s = FlightSummary(
         filename=filename,
@@ -201,3 +209,61 @@ def test_photo_img_admin_session_ok(client):
     url = _photo_url(client, s["v_alice"])
     assert _login(client, "admin", "admin")
     assert client.get(url).status_code == 200
+
+
+# --- F3: cross-user collisions (issue #17) ---
+
+def test_upload_cannot_overwrite_other_owner_flight(client, monkeypatch):
+    """Uploading a CSV whose filename is already registered to another user
+    must be rejected with 409 and must NOT change the existing flight."""
+    s = _seed(client)
+    monkeypatch.setattr(client.app_mod, "reverse_geocode", lambda lat, lon: None)
+    assert _login(client, "bob", "bobpass")
+    r = client.post("/api/upload", files={
+        "file": ("alice1.csv", FIXTURE_CSV, "text/csv")})
+    assert r.status_code == 409
+    assert "another user" in r.json()["error"]
+    # Alice's flight unchanged and still owned by alice
+    data = client.get("/api/flights").json()
+    assert all(f["filename"] != "alice1.csv" for f in data)
+    from database import get_flight
+    assert get_flight("alice1.csv")["owner_id"] == s["alice"]["id"]
+
+
+def test_scan_skips_flights_of_other_owners(client):
+    """A CSV on disk already registered to another user must be skipped by
+    scan (no ownership transfer, no overwrite)."""
+    s = _seed(client)
+    (client.app_mod.LOG_DIR / "alice1.csv").write_text(FIXTURE_CSV)
+    assert _login(client, "bob", "bobpass")
+    r = client.post("/api/scan")
+    assert r.status_code == 200
+    assert "alice1.csv" not in r.json()["imported"]
+    from database import get_flight
+    assert get_flight("alice1.csv")["owner_id"] == s["alice"]["id"]
+    data = client.get("/api/flights").json()
+    assert all(f["filename"] != "alice1.csv" for f in data)
+
+
+def test_flights_expose_owner_username(client):
+    s = _seed(client)
+    assert _login(client, "admin", "admin")
+    data = client.get("/api/flights").json()
+    by_name = {f["filename"]: f for f in data}
+    assert by_name["alice1.csv"]["owner_username"] == "alice"
+    assert by_name["bob1.csv"]["owner_username"] == "bob"
+    assert by_name["alice1.csv"]["owner_id"] == s["alice"]["id"]
+
+
+def test_admin_can_filter_flights_by_owner(client):
+    _seed(client)
+    assert _login(client, "admin", "admin")
+    data = client.get("/api/flights?owner=alice").json()
+    assert {f["filename"] for f in data} == {"alice1.csv", "alice2.csv"}
+
+
+def test_owner_filter_is_ignored_for_non_admin(client):
+    s = _seed(client)
+    assert _login(client, "bob", "bobpass")
+    data = client.get("/api/flights?owner=alice").json()
+    assert {f["filename"] for f in data} == {"bob1.csv"}

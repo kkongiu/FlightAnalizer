@@ -5,7 +5,7 @@ la fase di implementazione e la lista è in ordine di esecuzione: ogni fase va
 completata prima di passare alla successiva.
 
 Ogni voce corrisponde a un'issue GitHub: il numero `[#N]` è il riferimento.
-Stato: **F0, F1, F2 completate** (F2 include registrazione con conferma via email e consenso privacy); F3–F8 pending.
+Stato: **F0, F1, F2, F3 completate** (F2 include registrazione con conferma via email e consenso privacy); F4–F8 pending.
 
 ---
 
@@ -35,12 +35,12 @@ Stato: **F0, F1, F2 completate** (F2 include registrazione con conferma via emai
 
 ## F3 · Isolamento dati
 
-- [ ] `[F3][ISOLAMENTO]` Aggiungere owner_id ai voli (colonna, migrazione voli esistenti all'admin) — [#16](https://github.com/kkongiu/FlightAnalizer/issues/16)
-- [ ] `[F3][ISOLAMENTO]` Assegnare il proprietario in upload/import/scan/reprocess — [#17](https://github.com/kkongiu/FlightAnalizer/issues/17)
-- [ ] `[F3][ISOLAMENTO]` Filtrare per owner tutte le query e rotte (lista, dettaglio, stats, tags, veicoli, battery-health, compare, mission); admin vede tutto — [#18](https://github.com/kkongiu/FlightAnalizer/issues/18)
-- [ ] `[F3][ISOLAMENTO]` Bloccare accesso ai voli altrui: check proprietario su get/export/delete/edit e 404/403 — [#19](https://github.com/kkongiu/FlightAnalizer/issues/19)
-- [ ] `[F3][ISOLAMENTO]` Test di isolamento: l'utente A non vede né modifica i voli dell'utente B — [#20](https://github.com/kkongiu/FlightAnalizer/issues/20)
-- [ ] `[F3][ISOLAMENTO]` Interfaccia: indicatore del proprietario, eventuale filtro/gestione per admin — [#21](https://github.com/kkongiu/FlightAnalizer/issues/21)
+- [x] `[F3][ISOLAMENTO]` Aggiungere owner_id ai voli (colonna, migrazione voli esistenti all'admin) — [#16](https://github.com/kkongiu/FlightAnalizer/issues/16)
+- [x] `[F3][ISOLAMENTO]` Assegnare il proprietario in upload/import/scan/reprocess — [#17](https://github.com/kkongiu/FlightAnalizer/issues/17)
+- [x] `[F3][ISOLAMENTO]` Filtrare per owner tutte le query e rotte (lista, dettaglio, stats, tags, veicoli, battery-health, compare, mission); admin vede tutto — [#18](https://github.com/kkongiu/FlightAnalizer/issues/18)
+- [x] `[F3][ISOLAMENTO]` Bloccare accesso ai voli altrui: check proprietario su get/export/delete/edit e 404/403 — [#19](https://github.com/kkongiu/FlightAnalizer/issues/19)
+- [x] `[F3][ISOLAMENTO]` Test di isolamento: l'utente A non vede né modifica i voli dell'utente B — [#20](https://github.com/kkongiu/FlightAnalizer/issues/20)
+- [x] `[F3][ISOLAMENTO]` Interfaccia: indicatore del proprietario, eventuale filtro/gestione per admin — [#21](https://github.com/kkongiu/FlightAnalizer/issues/21)
 
 ## F4 · Privacy
 

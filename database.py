@@ -289,6 +289,12 @@ def save_flight(summary: FlightSummary, owner_id: int | None = None):
         ))
 
 
+def _username_map() -> dict:
+    with _get_conn() as conn:
+        rows = conn.execute("SELECT id, username FROM users").fetchall()
+    return {r["id"]: r["username"] for r in rows}
+
+
 def get_all_flights(owner_id: int | None = None, is_admin: bool = False) -> list[dict]:
     with _get_conn() as conn:
         if is_admin or owner_id is None:
@@ -297,7 +303,11 @@ def get_all_flights(owner_id: int | None = None, is_admin: bool = False) -> list
             rows = conn.execute(
                 "SELECT * FROM flights WHERE owner_id = ? ORDER BY date DESC, start_time DESC",
                 (owner_id,)).fetchall()
-    return [_row_to_dict(r) for r in rows]
+        out = [_row_to_dict(r) for r in rows]
+    usernames = _username_map()
+    for d in out:
+        d["owner_username"] = usernames.get(d.get("owner_id"))
+    return out
 
 
 def get_flight(filename: str, owner_id: int | None = None, is_admin: bool = False) -> dict | None:
@@ -308,7 +318,10 @@ def get_flight(filename: str, owner_id: int | None = None, is_admin: bool = Fals
             row = conn.execute(
                 "SELECT * FROM flights WHERE filename = ? AND owner_id = ?",
                 (filename, owner_id)).fetchone()
-    return _row_to_dict(row) if row else None
+        d = _row_to_dict(row) if row else None
+    if d:
+        d["owner_username"] = _username_map().get(d.get("owner_id"))
+    return d
 
 
 def delete_flight(filename: str, owner_id: int | None = None, is_admin: bool = False) -> bool:

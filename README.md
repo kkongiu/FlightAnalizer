@@ -447,11 +447,11 @@ Done so far:
 - [x] Production hardening (SQLite WAL, systemd, deploy checklist)
 - [x] **F0** — versioned DB migrations + Docker, automated backups + restore, server logging + health check, E2E API test suite + CI
 - [x] **F1 · Sicurezza** — rate limiting, CSRF, secure session cookies, password policy
+- [x] **F2 · Account** — public registration (open/approval/confirm), email confirmation, privacy consent, password reset, self-service account, admin user management
+- [x] **F3 · Isolamento** — per-user flight ownership (`owner_id`), cross-user collision protection, admin owner indicator/filter, isolation tests
 
 Next (by phase):
 
-- **F2 · Account** — public registration, password reset, self-service account
-- **F3 · Isolamento** — per-user flight ownership (`owner_id`), access control, isolation tests
 - **F4 · Privacy** — account deletion + data export, audit log, privacy policy
 - **F5 · Messaggi** — private messaging, in-app notifications, email/push alerts
 - **F6 · Foto** — per-flight photo gallery, covers, geotagged photos
