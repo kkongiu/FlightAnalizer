@@ -95,9 +95,9 @@ def test_delete_blocked_for_non_owner(client):
                       ).json()["id"]
     assert _login(client, "bob")
     assert client.delete(f"/api/flights/a.csv/photos/{pid}").status_code == 404
-    # admin can delete
+    # admin (not the owner) cannot delete another user's photos either
     assert _login(client, "admin", "admin")
-    assert client.delete(f"/api/flights/a.csv/photos/{pid}").status_code == 200
+    assert client.delete(f"/api/flights/a.csv/photos/{pid}").status_code == 404
 
 
 def test_delete_removes_cover_and_db_row(client):

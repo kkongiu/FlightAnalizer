@@ -189,7 +189,7 @@ def seed():
         if v.name == "Demo Glider":
             v_glider = v
     if not v_multi:
-        v_multi = database.create_vehicle("Demo Quad 5\" 3D", "drone", True, uid)
+        v_multi = database.create_vehicle("Demo Quad 5\" 3D", "drone", False, uid)
         print("vehicle created:", v_multi.name)
     if not v_glider:
         v_glider = database.create_vehicle("Demo Glider", "glider", False, uid)

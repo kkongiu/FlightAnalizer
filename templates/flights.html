@@ -16,14 +16,6 @@
             <option value="">All tags</option>
             <option value="__untagged">Untagged</option>
         </select>
-        {% if is_admin %}
-        <select id="ownerFilter" style="padding:0.25rem 0.5rem;border-radius:4px;border:1px solid var(--border);background:var(--bg);color:var(--fg);font-size:0.75rem;">
-            <option value="">All owners</option>
-            {% for o in flights | selectattr('owner_username') | map(attribute='owner_username') | unique | sort %}
-            <option value="{{ o }}">{{ o }}</option>
-            {% endfor %}
-        </select>
-        {% endif %}
         <input type="text" id="tagSearch" list="tagSearchList" placeholder="Search tags (comma separated)..." style="flex:1;min-width:150px;">
         <datalist id="tagSearchList"></datalist>
         <div class="filter-group">
@@ -72,20 +64,19 @@
                     <th>Max Speed</th>
                     <th>Battery End</th>
                     <th>Filename</th>
-                    {% if is_admin %}<th>Owner</th>{% endif %}
                     <th></th>
                 </tr>
             </thead>
             <tbody id="flightsBody">
             {% for f in flights %}
-                <tr class="flight-row" data-filename="{{ f.filename }}" data-date="{{ f.date }}" data-tags="{{ f.tags | join(',') }}" data-distance="{{ f.distance_km }}" data-alt="{{ f.max_alt_m }}" data-duration="{{ f.duration_s }}" {% if is_admin %}data-owner="{{ f.owner_username }}"{% endif %}>
+                <tr class="flight-row" data-filename="{{ f.filename }}" data-date="{{ f.date }}" data-tags="{{ f.tags | join(',') }}" data-distance="{{ f.distance_km }}" data-alt="{{ f.max_alt_m }}" data-duration="{{ f.duration_s }}">
                     <td class="sel-col"><input type="checkbox" class="row-cb" title="Select"></td>
                     <td>
                         {% set cover_id = covers.get(f.filename) %}
                         {% if cover_id %}
                         <a href="/flight/flight/{{ f.filename }}"><img class="cover-thumb" src="/flight/api/flights/{{ f.filename }}/photos/{{ cover_id }}/img" alt=""></a>
                         {% else %}
-                        <span class="cover-thumb cover-empty"></span>
+                        <div class="cover-thumb cover-map" data-coords='{{ f.coordinates | tojson }}' style="cursor:pointer;" title="No cover photo — track preview"></div>
                         {% endif %}
                     </td>
                     <td>{{ f.date }}</td>
@@ -96,7 +87,6 @@
                     <td>{{ "%.0f"|format(f.max_speed_kmh) }} km/h</td>
                     <td>{{ "%.1f"|format(f.battery_end_v) }}V</td>
                     <td><a href="/flight/flight/{{ f.filename }}">{{ f.filename }}</a></td>
-                    {% if is_admin %}<td>{{ f.owner_username or "—" }}</td>{% endif %}
                     <td><button class="btn-danger btn-sm delete-btn" data-name="{{ f.filename }}">Delete</button></td>
                 </tr>
             {% endfor %}
@@ -143,13 +133,10 @@ function filterRows() {
     const distV = numVal('fDistVal'), distOp = document.getElementById('fDistOp').value;
     const altV = numVal('fAltVal'), altOp = document.getElementById('fAltOp').value;
     const durV = numVal('fDurVal'), durOp = document.getElementById('fDurOp').value;
-    const ownerSel = document.getElementById('ownerFilter');
-    const ownerFilter = ownerSel ? ownerSel.value : '';
     return allRows.filter(r => {
         const matchSearch = r.getAttribute('data-filename').toLowerCase().includes(q)
             || r.getAttribute('data-date').includes(q);
         if (!matchSearch) return false;
-        if (ownerFilter && r.getAttribute('data-owner') !== ownerFilter) return false;
         const rowTags = (r.getAttribute('data-tags') || '').split(',').filter(Boolean);
         const rowTagsLower = rowTags.map(t => t.toLowerCase());
         if (tagFilter) {
@@ -214,7 +201,7 @@ function renderPage() {
 ['searchInput', 'fDistVal', 'fAltVal', 'fDurVal'].forEach(id => {
     document.getElementById(id).addEventListener('input', () => { currentPage = 1; renderPage(); });
 });
-['tagFilter', 'fDistOp', 'fAltOp', 'fDurOp', 'ownerFilter'].forEach(id => {
+['tagFilter', 'fDistOp', 'fAltOp', 'fDurOp'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('change', () => { currentPage = 1; renderPage(); });
 });
@@ -223,8 +210,6 @@ document.getElementById('clearFiltersBtn').addEventListener('click', () => {
     document.getElementById('searchInput').value = '';
     document.getElementById('tagFilter').value = '';
     document.getElementById('tagSearch').value = '';
-    const ownerSel = document.getElementById('ownerFilter');
-    if (ownerSel) ownerSel.value = '';
     ['fDistVal', 'fAltVal', 'fDurVal'].forEach(id => document.getElementById(id).value = '');
     currentPage = 1;
     renderPage();
@@ -307,6 +292,23 @@ document.getElementById('uploadInput').addEventListener('change', async (e) => {
         else { alert('Error: ' + (data.error || 'unknown')); }
     } catch(e) { alert('Upload error: ' + e.message); }
     e.target.value = '';
+});
+
+// Mini track map thumbnails for flights without a cover photo
+document.querySelectorAll('.cover-map').forEach(el => {
+    let coords = [];
+    try { coords = JSON.parse(el.dataset.coords); } catch(e) {}
+    if (!coords || !coords.length) return;
+    const pts = coords.map(c => [c[0], c[1]]);
+    const map = L.map(el, {
+        scrollWheelZoom: false, dragging: false, touchZoom: false,
+        doubleClickZoom: false, boxZoom: false, keyboard: false, zoomControl: false,
+        attributionControl: false
+    });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19}).addTo(map);
+    L.polyline(pts, {color: '#0ea5e9', weight: 2}).addTo(map);
+    map.fitBounds(pts, {padding: [2, 2]});
+    el.addEventListener('click', () => { window.location.href = '/flight/flight/' + el.closest('tr').getAttribute('data-filename'); });
 });
 </script>
 {% endblock %}

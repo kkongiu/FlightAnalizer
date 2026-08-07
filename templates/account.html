@@ -67,6 +67,23 @@
         </div>
     </div>
 </div>
+
+<div id="deleteModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:100;align-items:center;justify-content:center;">
+    <div class="card" style="max-width:440px;width:100%;padding:1.25rem;">
+        <h4 style="font-size:0.9rem;font-weight:700;color:#ef4444;margin-bottom:0.5rem;">Delete Account — double confirmation</h4>
+        <div id="deleteSummary" style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.75rem;"></div>
+        <p style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.5rem;">Type your password to confirm permanent deletion:</p>
+        <input type="password" id="deletePassword" placeholder="Your password" autocomplete="current-password" style="width:100%;padding:0.55rem 0.6rem;border:1px solid rgba(239,68,68,0.4);border-radius:6px;background:var(--bg);color:var(--text);margin-bottom:0.75rem;">
+        <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.9rem;">
+            <input type="checkbox" id="deleteBackup" checked> Create a database backup first
+        </label>
+        <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
+            <button class="btn-primary" id="deleteCancelBtn" style="background:var(--bg);color:var(--text);box-shadow:none;border:1px solid rgba(128,128,128,0.25);">Cancel</button>
+            <button class="btn-danger" id="deleteConfirmBtn">Delete permanently</button>
+        </div>
+        <div class="error" id="deleteModalError" style="color:#ef4444;font-size:0.8rem;margin-top:0.6rem;"></div>
+    </div>
+</div>
 <script>
 (function() {
     const saved = localStorage.getItem('theme');
@@ -175,27 +192,44 @@
         const data = await first.json().catch(() => ({}));
         if (first.status === 409 && data.confirm && data.counts) {
             const c = data.counts;
-            const keepBackup = confirm(
-                'Delete your account permanently?\n\n' +
-                'This will remove:\n' +
-                '  - ' + c.flights + ' flights\n' +
-                '  - ' + c.vehicles + ' vehicles\n\n' +
-                'Create a database backup first?'
-            );
-            if (keepBackup === null) return;
-            const res = await fetch('/flight/api/account', {
-                method: 'DELETE',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({confirm: true, backup: keepBackup})
-            });
-            if (res.ok) {
-                window.location.href = '/flight/login';
-            } else {
-                const b = await res.json().catch(() => ({}));
-                err.textContent = b.error || 'Delete failed';
-            }
+            document.getElementById('deleteSummary').textContent =
+                'This will permanently remove:\n' +
+                '  - ' + c.flights + ' flight(s)\n' +
+                '  - ' + c.vehicles + ' vehicle(s)\n\n' +
+                'This cannot be undone.';
+            document.getElementById('deletePassword').value = '';
+            document.getElementById('deleteModalError').textContent = '';
+            const modal = document.getElementById('deleteModal');
+            modal.style.display = 'flex';
+            document.getElementById('deletePassword').focus();
         } else {
             err.textContent = data.error || 'Delete failed';
+        }
+    });
+
+    document.getElementById('deleteCancelBtn').addEventListener('click', () => {
+        document.getElementById('deleteModal').style.display = 'none';
+    });
+    document.getElementById('deleteModal').addEventListener('click', (e) => {
+        if (e.target.id === 'deleteModal') e.target.style.display = 'none';
+    });
+
+    document.getElementById('deleteConfirmBtn').addEventListener('click', async () => {
+        const mErr = document.getElementById('deleteModalError');
+        mErr.textContent = '';
+        const password = document.getElementById('deletePassword').value;
+        if (!password) { mErr.textContent = 'Please enter your password.'; return; }
+        const backup = document.getElementById('deleteBackup').checked;
+        const res = await fetch('/flight/api/account', {
+            method: 'DELETE',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({confirm: true, backup: backup, password: password})
+        });
+        if (res.ok) {
+            window.location.href = '/flight/login';
+        } else {
+            const b = await res.json().catch(() => ({}));
+            mErr.textContent = b.error || 'Delete failed';
         }
     });
 

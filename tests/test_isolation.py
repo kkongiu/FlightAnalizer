@@ -57,14 +57,18 @@ def _login(client, username, password):
 
 
 def _seed(client):
+    admin = get_user("admin")
     alice = create_user("alice", "alicepass", role="viewer")
     bob = create_user("bob", "bobpass", role="viewer")
+    save_flight(_summary("admin1.csv"), admin["id"])
     save_flight(_summary("alice1.csv"), alice["id"])
     save_flight(_summary("alice2.csv"), alice["id"])
     save_flight(_summary("bob1.csv"), bob["id"])
+    v_admin = create_vehicle("Admin Drone", "drone", owner_id=admin["id"])
     v_alice = create_vehicle("Alice Drone", "drone", owner_id=alice["id"])
     v_bob = create_vehicle("Bob Quad", "drone", owner_id=bob["id"])
-    return {"alice": alice, "bob": bob, "v_alice": v_alice, "v_bob": v_bob}
+    return {"admin": admin, "alice": alice, "bob": bob,
+            "v_admin": v_admin, "v_alice": v_alice, "v_bob": v_bob}
 
 
 def test_api_requires_auth(client):
@@ -80,12 +84,26 @@ def test_flights_are_scoped_by_owner(client):
     assert names == {"alice1.csv", "alice2.csv"}
 
 
-def test_admin_sees_all_flights(client):
+def test_admin_sees_only_own_flights(client):
     _seed(client)
     assert _login(client, "admin", "admin")
     data = client.get("/api/flights").json()
     names = {f["filename"] for f in data}
-    assert names == {"alice1.csv", "alice2.csv", "bob1.csv"}
+    assert names == {"admin1.csv"}
+
+
+def test_admin_cannot_read_other_owner_flight(client):
+    _seed(client)
+    assert _login(client, "admin", "admin")
+    assert client.get("/api/flights/bob1.csv").status_code == 404
+    assert client.delete("/api/flights/bob1.csv").status_code == 404
+
+
+def test_admin_sees_only_own_vehicles(client):
+    _seed(client)
+    assert _login(client, "admin", "admin")
+    names = {v["name"] for v in client.get("/api/vehicles").json()}
+    assert names == {"Admin Drone"}
 
 
 def test_user_cannot_read_other_owner_flight(client):
@@ -133,7 +151,7 @@ def test_delete_user_cascade_removes_data(client, monkeypatch):
     (photo_dir / f"v{s['v_alice'].id}.webp").write_bytes(b"img")
     assert _login(client, "admin", "admin")
     r = client.request("DELETE", f"/api/users/{s['alice']['id']}",
-                       json={"confirm": True, "backup": False})
+                       json={"confirm": True, "backup": False, "password": "admin"})
     assert r.status_code == 200
     body = r.json()
     assert body["flights_deleted"] == 2
@@ -141,7 +159,7 @@ def test_delete_user_cascade_removes_data(client, monkeypatch):
     assert "alice1.csv" in body["files_removed"]
     assert get_user("alice") is None
     names = {f["filename"] for f in client.get("/api/flights").json()}
-    assert names == {"bob1.csv"}
+    assert names == {"admin1.csv"}
     # CSV removed from disk
     assert not (client.app_mod.LOG_DIR / "alice1.csv").exists()
     # vehicle photo removed (from the patched dir, never production data)
@@ -152,7 +170,7 @@ def test_delete_user_with_backup_creates_snapshot(client):
     s = _seed(client)
     assert _login(client, "admin", "admin")
     r = client.request("DELETE", f"/api/users/{s['alice']['id']}",
-                        json={"confirm": True, "backup": True})
+                        json={"confirm": True, "backup": True, "password": "admin"})
     assert r.status_code == 200
     assert r.json()["backup"]
     backup_dir = client.app_mod.database.DATA_DIR / "backups"
@@ -204,11 +222,11 @@ def test_photo_img_anonymous_is_404(client):
     assert client.get(url).status_code == 404
 
 
-def test_photo_img_admin_session_ok(client):
+def test_photo_img_admin_session_cannot_see_others(client):
     s = _seed(client)
     url = _photo_url(client, s["v_alice"])
     assert _login(client, "admin", "admin")
-    assert client.get(url).status_code == 200
+    assert client.get(url).status_code == 404
 
 
 # --- F3: cross-user collisions (issue #17) ---
@@ -247,19 +265,18 @@ def test_scan_skips_flights_of_other_owners(client):
 
 def test_flights_expose_owner_username(client):
     s = _seed(client)
-    assert _login(client, "admin", "admin")
+    assert _login(client, "alice", "alicepass")
     data = client.get("/api/flights").json()
     by_name = {f["filename"]: f for f in data}
     assert by_name["alice1.csv"]["owner_username"] == "alice"
-    assert by_name["bob1.csv"]["owner_username"] == "bob"
     assert by_name["alice1.csv"]["owner_id"] == s["alice"]["id"]
 
 
-def test_admin_can_filter_flights_by_owner(client):
+def test_admin_cannot_filter_by_other_owner(client):
     _seed(client)
     assert _login(client, "admin", "admin")
     data = client.get("/api/flights?owner=alice").json()
-    assert {f["filename"] for f in data} == {"alice1.csv", "alice2.csv"}
+    assert {f["filename"] for f in data} == {"admin1.csv"}
 
 
 def test_owner_filter_is_ignored_for_non_admin(client):

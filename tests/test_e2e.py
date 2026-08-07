@@ -253,7 +253,8 @@ def test_user_crud_and_permissions(client):
 
     # admin deletes the viewer
     _login(client)
-    r = client.request("DELETE", f"/api/users/{uid}", json={"confirm": True})
+    r = client.request("DELETE", f"/api/users/{uid}",
+                       json={"confirm": True, "password": "admin"})
     assert r.status_code == 200
     assert r.json()["deleted"] == uid
     assert all(u["username"] != "viewer1" for u in client.get("/api/users").json())

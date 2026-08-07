@@ -472,7 +472,7 @@ Done so far:
 - [x] **F0** — versioned DB migrations + Docker, automated backups + restore, server logging + health check, E2E API test suite + CI
 - [x] **F1 · Sicurezza** — rate limiting, CSRF, secure session cookies, password policy
 - [x] **F2 · Account** — public registration (open/approval/confirm), email confirmation, privacy consent, password reset, self-service account, admin user management
-- [x] **F3 · Isolamento** — per-user flight ownership (`owner_id`), cross-user collision protection, admin owner indicator/filter, isolation tests
+- [x] **F3 · Isolamento** — per-user flight ownership (`owner_id`), cross-user collision protection, strict data isolation (admins only see their own flights/vehicles too), isolation tests
 - [x] **F4 · Privacy** — self-service data export (GDPR art. 20) and account deletion, audit log viewer, privacy/terms page
 - [x] **F5 · Messaggi e notifiche** — private messaging with conversations and unread badge, email notifications, flight attachment (isolation-aware), admin conversation management
 - [x] **F6 · Foto** — per-flight photo gallery (upload, lightbox, single delete), cover photos with list previews, owner/admin-only management

@@ -21,6 +21,7 @@
                 <span>{{ f.date }} {{ f.start_time }}</span>
                 <span style="font-size:0.7rem;padding:0.15rem 0.4rem;border-radius:4px;background:rgba(14,165,233,0.1);color:var(--accent);">{{ f.owner_username }}</span>
             </div>
+            <div class="mini-map" data-coords='{{ f.coordinates | tojson }}' style="height:110px;border-radius:8px;overflow:hidden;margin-bottom:0.6rem;background:var(--bg);"></div>
             <div style="font-size:0.8rem;color:var(--text-secondary);">
                 <div>{{ f.distance_km|round(2) if f.distance_km else "—" }} km · {{ '%.0f'|format(f.max_alt_m or 0) }} m max</div>
                 <div style="margin-top:0.3rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ f.filename }}</div>
@@ -31,4 +32,23 @@
     </div>
     {% endif %}
 </div>
+<script>
+document.querySelectorAll('.mini-map').forEach(el => {
+    let coords = [];
+    try { coords = JSON.parse(el.dataset.coords); } catch(e) {}
+    if (!coords || !coords.length) {
+        el.innerHTML = '<div style="height:100%;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:0.7rem;">No track</div>';
+        return;
+    }
+    const pts = coords.map(c => [c[0], c[1]]);
+    const map = L.map(el, {
+        scrollWheelZoom: false, dragging: false, touchZoom: false,
+        doubleClickZoom: false, boxZoom: false, keyboard: false, zoomControl: false,
+        attributionControl: false
+    });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19}).addTo(map);
+    L.polyline(pts, {color: '#0ea5e9', weight: 2}).addTo(map);
+    map.fitBounds(pts, {padding: [6, 6]});
+});
+</script>
 {% endblock %}

@@ -32,6 +32,7 @@ from database import (save_flight, get_all_flights, get_flight, delete_flight,
                       get_battery_health_by_vehicle,
                       create_user, get_user, get_user_by_id, get_all_users,
                       update_user, change_password, verify_user,
+                      verify_password_for_user,
                       recalculate_home_distances, set_flight_track_source,
                       count_user_data, delete_user_cascade, backup_database,
                       create_reset_token, get_reset_token_user,
@@ -63,8 +64,8 @@ from database import (save_flight, get_all_flights, get_flight, delete_flight,
                       friend_request_by_id, accept_friend_request,
                       reject_friend_request, remove_friends, are_friends,
                       get_feed_flights, set_flight_visibility,
-                      set_flight_shared_group, create_group, get_all_groups,
-                      get_group, update_group_name, delete_group,
+                       set_flight_shared_group, create_group,
+                       get_group, update_group_name, delete_group,
                       add_group_member, remove_group_member, get_group_members,
                       groups_of_user)
 import httpx
@@ -355,11 +356,6 @@ def _current(request: Request) -> dict:
         "role": request.session.get("role"),
         "is_admin": is_admin,
     }
-
-
-def _scope(owner_id, is_admin=False):
-    """(owner_id, is_admin) tuple kept small at call sites."""
-    return owner_id, is_admin
 
 
 def _audit(request: Request, action: str, detail: str | None = None) -> None:
@@ -792,6 +788,9 @@ async def api_account_delete(request: Request):
             "confirm": True,
             "counts": counts,
         }, status_code=409)
+    password = str(body.get("password", ""))
+    if not verify_password_for_user(me["user_id"], password):
+        return JSONResponse({"error": "password is incorrect"}, status_code=403)
     backup_info = None
     if str(body.get("backup", "")).strip().lower() == "true":
         backup_dir = database.DATA_DIR / "backups"
@@ -1062,10 +1061,6 @@ async def api_flights(request: Request):
         return denied
     me = _current(request)
     flights = get_all_flights(me["user_id"], me["is_admin"])
-    if me["is_admin"]:
-        owner = (request.query_params.get("owner") or "").strip()
-        if owner:
-            flights = [f for f in flights if f.get("owner_username") == owner]
     return flights
 
 
@@ -1402,7 +1397,7 @@ def _shares_with_urls(rows: list[dict]) -> list[dict]:
 
 
 def _share_owner_or_admin(owner_id: int | None, me: dict) -> bool:
-    return bool(me.get("is_admin") or (owner_id and owner_id == me.get("user_id")))
+    return bool(owner_id and owner_id == me.get("user_id"))
 
 
 def share_public_url(token: str) -> str:
@@ -2014,7 +2009,7 @@ def _help_sections() -> list[dict]:
              {"term": "DEFAULT badge (vehicle)", "meaning": "Green label: this vehicle is assigned automatically to new flights without one."},
              {"term": "Role badges (Users)", "meaning": "Purple Admin / gray Indipendente; status badges show active, pending or disabled."},
              {"term": "Cover tag", "meaning": "Marks the photo used as the flight's cover in lists and previews."},
-             {"term": "Owner column (admin)", "meaning": "In Flights, shows who owns each flight; admins can filter by owner."},
+             {"term": "Owner username", "meaning": "Shown on feed cards; each user only sees their own flights in Flights, Dashboard and exports."},
              {"term": "Flight mode colors", "meaning": "The strip color per mode: e.g. acro pink, RTH blue, land red, failsafe brown."},
          ]},
         {"icon": "📊", "title": "Dashboard & stats",
@@ -2558,6 +2553,7 @@ async def api_delete_user(user_id: int, request: Request):
     forbidden = require_admin(request)
     if forbidden:
         return forbidden
+    me = _current(request)
     user = get_user_by_id(user_id)
     if not user:
         return JSONResponse({"error": "not found"}, status_code=404)
@@ -2578,6 +2574,9 @@ async def api_delete_user(user_id: int, request: Request):
             "confirm": True,
             "counts": counts,
         }, status_code=409)
+    password = str(body.get("password", ""))
+    if not verify_password_for_user(me["user_id"], password):
+        return JSONResponse({"error": "password is incorrect"}, status_code=403)
     deleted_files = []
     backup_info = None
     if str(body.get("backup", "")).strip().lower() == "true":
@@ -2867,8 +2866,6 @@ def notify_new_message_notification(recipient: dict, sender: dict, text: str,
 
 
 def _vehicle_owned(vehicle_id: int, me: dict) -> bool:
-    if me["is_admin"]:
-        return True
     v = get_vehicle(vehicle_id, me["user_id"], False)
     return v is not None
 
@@ -3189,10 +3186,7 @@ async def api_groups(request: Request):
     if denied:
         return denied
     me = _current(request)
-    if me["is_admin"]:
-        groups = get_all_groups()
-    else:
-        groups = groups_of_user(me["user_id"])
+    groups = groups_of_user(me["user_id"])
     out = []
     for g in groups:
         out.append({**g, "members": get_group_members(g["id"])})
@@ -3212,6 +3206,8 @@ async def api_group_create(request: Request):
     if not name:
         return JSONResponse({"error": "name is required"}, status_code=400)
     g = create_group(name, me["user_id"])
+    if g:
+        add_group_member(g["id"], me["user_id"])
     _audit(request, "group_create", name)
     return {"group": g}
 
@@ -3280,12 +3276,8 @@ async def groups_page(request: Request):
     if redirect:
         return redirect
     me = _current(request)
-    if me["is_admin"]:
-        groups = get_all_groups()
-        users = get_all_users()
-    else:
-        groups = groups_of_user(me["user_id"])
-        users = []
+    groups = groups_of_user(me["user_id"])
+    users = get_all_users() if me["is_admin"] else []
     out = [{**g, "members": get_group_members(g["id"])} for g in groups]
     return templates.TemplateResponse(request, "groups.html", {
         "groups": out, "is_admin": me["is_admin"], "users": users,

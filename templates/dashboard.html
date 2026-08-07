@@ -159,6 +159,7 @@
                     <span>{{ f.date }} {{ f.start_time }}</span>
                     <span style="color:var(--text-muted);font-weight:400;font-size:0.75rem;">{{ f.duration_s | fmt_duration }}</span>
                 </div>
+                <div class="mini-map" data-coords='{{ f.coordinates | tojson }}' style="height:110px;border-radius:8px;overflow:hidden;margin-bottom:0.6rem;background:var(--bg);"></div>
                 <div class="flight-card-body">
                     <div class="metric"><span class="metric-label">Dist</span><span class="metric-value">{{ "%.2f"|format(f.distance_km) }} km</span></div>
                     <div class="metric"><span class="metric-label">Max Alt</span><span class="metric-value">{{ "%.0f"|format(f.max_alt_m) }} m</span></div>
@@ -383,6 +384,25 @@ document.getElementById('uploadInput').addEventListener('change', async (e) => {
         alert('Upload error: ' + e.message);
     }
     e.target.value = '';
+});
+
+// Mini track maps for recent-flight cards
+document.querySelectorAll('.mini-map').forEach(el => {
+    let coords = [];
+    try { coords = JSON.parse(el.dataset.coords); } catch(e) {}
+    if (!coords || !coords.length) {
+        el.innerHTML = '<div style="height:100%;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:0.7rem;">No track</div>';
+        return;
+    }
+    const pts = coords.map(c => [c[0], c[1]]);
+    const map = L.map(el, {
+        scrollWheelZoom: false, dragging: false, touchZoom: false,
+        doubleClickZoom: false, boxZoom: false, keyboard: false, zoomControl: false,
+        attributionControl: false
+    });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19}).addTo(map);
+    L.polyline(pts, {color: '#0ea5e9', weight: 2}).addTo(map);
+    map.fitBounds(pts, {padding: [6, 6]});
 });
 </script>
 {% endblock %}

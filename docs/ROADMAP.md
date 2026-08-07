@@ -84,3 +84,16 @@ Stato: **F0–F8 completate** (F2 include registrazione con conferma via email e
 ## Help & guida (trasversale)
 
 - [x] Help interattivo: pagina `/help` con guida (getting-started con checklist persistente, sezioni per feature, ricerca live) e pulsante "?" flottante con menu rapido (toggle con tasto `?`)
+
+---
+
+## Prossime sessioni (trasversali, in attesa)
+
+- [ ] **Rinomina applicazione** — trovare un nome commercialmente più vendibile (rebranding):
+      nome breve/memorabile, verifica disponibilità dominio/package, aggiornamento di titolo/branding
+      in `base.html`, README, manifest PWA, footer, email, testo di help e tutti i riferimenti
+      all'attuale "Pocket Log Analyzer".
+- [ ] **Multilingue (i18n)** — attivare il supporto multilingue: framework di traduzione
+      (chiavi nei template + catalogo), lingua default + selettore lingua (persistito),
+      traduzione di menu/nav, pagine principali, email e help; allineare date/formati numerici
+      alla lingua scelta.

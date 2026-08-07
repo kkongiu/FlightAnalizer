@@ -28,12 +28,14 @@
         <div style="margin-top:0.5rem;display:flex;gap:0.3rem;flex-wrap:wrap;">
             <a class="btn-primary" href="/flight/api/export/{{ flight.filename }}?format=gpx" style="text-decoration:none;font-size:0.7rem;padding:0.25rem 0.6rem;">Export GPX</a>
             <a class="btn-primary" href="/flight/api/export/{{ flight.filename }}?format=kml" style="text-decoration:none;font-size:0.7rem;padding:0.25rem 0.6rem;">Export KML</a>
-            <a class="btn-primary" href="/flight/mission/{{ flight.filename }}" style="text-decoration:none;font-size:0.7rem;padding:0.25rem 0.6rem;">Missione INAV</a>
+            <a class="btn-primary" href="/flight/mission/{{ flight.filename }}" style="text-decoration:none;font-size:0.7rem;padding:0.25rem 0.6rem;">INAV Mission</a>
             <label class="btn-primary" for="gpxFileInput" style="font-size:0.7rem;padding:0.25rem 0.6rem;cursor:pointer;" id="importGpxLabel">Import GPX</label>
             <input type="file" id="gpxFileInput" accept=".gpx" style="display:none;">
             <button class="btn-primary" id="rescanNavBtn" style="font-size:0.7rem;padding:0.25rem 0.6rem;">Rescan Nav</button>
             <button class="btn-primary" id="weatherBtn" style="font-size:0.7rem;padding:0.25rem 0.6rem;">☀️ Weather</button>
             <button class="btn-primary" id="shareBtn" style="font-size:0.7rem;padding:0.25rem 0.6rem;">🔗 Share</button>
+            <button class="btn-primary" id="saveTopBtn" style="font-size:0.7rem;padding:0.25rem 0.6rem;">💾 Save</button>
+            <span id="saveTopMsg" style="font-size:0.7rem;color:#22c55e;display:none;">Saved</span>
             <label style="font-size:0.7rem;color:var(--text-secondary);font-weight:500;display:flex;align-items:center;gap:0.3rem;">Visibility:
                 <select id="visibilitySelect" style="padding:0.2rem 0.4rem;border:1px solid rgba(128,128,128,0.2);border-radius:4px;background:var(--bg);color:var(--text);font-size:0.7rem;">
                     <option value="private" {% if flight.visibility == 'private' %}selected{% endif %}>Private</option>
@@ -389,25 +391,28 @@ document.getElementById('addTagBtn').addEventListener('click', () => {
 document.getElementById('tagInput').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') document.getElementById('addTagBtn').click();
 });
-document.getElementById('saveTagsBtn').addEventListener('click', async () => {
+document.getElementById('saveTagsBtn').addEventListener('click', () => saveTags());
+
+function saveTags() {
     const msg = document.getElementById('tagSavedMsg');
-    try {
-        const r = await fetch('/flight/api/flights/' + encodeURIComponent(filename) + '/tags', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({tags: currentTags})
-        });
+    return fetch('/flight/api/flights/' + encodeURIComponent(filename) + '/tags', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({tags: currentTags})
+    }).then(r => {
         if (r.ok) {
             msg.style.display = 'inline';
             setTimeout(() => msg.style.display = 'none', 2000);
         }
-    } catch(e) {
+        return r.ok;
+    }).catch(e => {
         msg.textContent = 'Error';
         msg.style.color = '#ef4444';
         msg.style.display = 'inline';
         setTimeout(() => { msg.style.display = 'none'; msg.style.color = '#22c55e'; msg.textContent = 'Saved'; }, 2000);
-    }
-});
+        return false;
+    });
+}
 
 document.getElementById('gpxFileInput').addEventListener('change', function(e) {
     const file = e.target.files[0];
@@ -463,6 +468,17 @@ function saveNotes() {
         status.textContent = 'Error';
     });
 }
+
+document.getElementById('saveTopBtn').addEventListener('click', () => {
+    const msg = document.getElementById('saveTopMsg');
+    saveNotes();
+    saveTags().then(ok => {
+        msg.textContent = ok ? 'Saved' : 'Tag error';
+        msg.style.color = ok ? '#22c55e' : '#ef4444';
+        msg.style.display = 'inline';
+        setTimeout(() => { msg.style.display = 'none'; }, 2500);
+    });
+});
 
 document.getElementById('rescanNavBtn').addEventListener('click', async () => {
     const btn = document.getElementById('rescanNavBtn');

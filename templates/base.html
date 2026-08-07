@@ -19,38 +19,127 @@
     <script src="/flight/static/vendor/chart.js"></script>
 </head>
 <body class="font-['Inter']">
-    <header class="sticky top-0 z-50 backdrop-blur-md bg-white/80 dark:bg-gray-900/80 border-b border-gray-200 dark:border-gray-700">
+    <header class="app-header sticky top-0 z-50">
         <div class="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
             <a href="/flight/" class="flex flex-col items-center leading-none text-sky-600 dark:text-sky-400 hover:opacity-80 whitespace-nowrap" style="padding:0.1rem 0;">
                 <span style="font-size:1.35rem;line-height:1;">🛩️</span>
                 <span style="font-size:0.6rem;font-weight:700;letter-spacing:0.03em;">Pocket Log Analyzer</span>
             </a>
-            <nav class="flex items-center gap-1 text-sm font-medium">
-                <a href="/flight/" class="px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">Dashboard</a>
-                <a href="/flight/flights" class="px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">Flights</a>
-                <a href="/flight/calendar" class="px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">Calendar</a>
-                <a href="/flight/feed" class="px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">Feed</a>
-                <a href="/flight/contacts" class="px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">Contacts</a>
-                <a href="/flight/groups" class="px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">Groups</a>
-                <a href="/flight/vehicles" class="px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">Vehicles</a>
-                <a href="/flight/compare" class="px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">Compare</a>
-                <a href="/flight/mission" class="px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">Missione</a>
-                <a href="/flight/report" class="px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">Report</a>
-                <a href="/flight/messages" class="relative px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">
-                    Messages
-                    <span id="msgUnreadBadge" class="hidden absolute -top-0.5 -right-0.5 bg-sky-600 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5"></span>
-                </a>
+
+            {# --- Desktop nav (grouped dropdowns) --- #}
+            <nav class="hidden lg:flex items-center gap-3 text-sm font-medium" aria-label="Main navigation">
+                <a href="/flight/" class="nav-item nav-link-home px-3 py-1.5 rounded-lg transition">Dashboard</a>
+
+                <div class="nav-group relative">
+                    <button type="button" class="nav-toggle nav-item px-3 py-1.5 rounded-lg transition flex items-center gap-1">Flights <span class="nav-caret text-[10px]">▾</span></button>
+                    <div class="nav-dropdown hidden absolute left-0 top-full mt-2 w-48 rounded-xl shadow-lg p-1.5 z-50">
+                        <a href="/flight/flights" class="nav-link block px-3 py-1.5 rounded-lg transition">Flights</a>
+                        <a href="/flight/calendar" class="nav-link block px-3 py-1.5 rounded-lg transition">Calendar</a>
+                        <a href="/flight/vehicles" class="nav-link block px-3 py-1.5 rounded-lg transition">Vehicles</a>
+                        <a href="/flight/compare" class="nav-link block px-3 py-1.5 rounded-lg transition">Compare</a>
+                        <a href="/flight/mission" class="nav-link block px-3 py-1.5 rounded-lg transition">Mission</a>
+                        <a href="/flight/report" class="nav-link block px-3 py-1.5 rounded-lg transition">Report</a>
+                    </div>
+                </div>
+
+                <div class="nav-group relative">
+                    <button type="button" class="nav-toggle nav-item px-3 py-1.5 rounded-lg transition flex items-center gap-1">Community <span class="nav-caret text-[10px]">▾</span></button>
+                    <div class="nav-dropdown hidden absolute left-0 top-full mt-2 w-48 rounded-xl shadow-lg p-1.5 z-50">
+                        <a href="/flight/feed" class="nav-link block px-3 py-1.5 rounded-lg transition">Feed</a>
+                        <a href="/flight/contacts" class="nav-link block px-3 py-1.5 rounded-lg transition">Contacts</a>
+                        <a href="/flight/groups" class="nav-link block px-3 py-1.5 rounded-lg transition">Groups</a>
+                        <a href="/flight/messages" class="nav-link relative block px-3 py-1.5 rounded-lg transition">
+                            Messages
+                            <span id="msgUnreadBadge" class="hidden absolute top-1 right-2 bg-sky-600 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5"></span>
+                        </a>
+                    </div>
+                </div>
+
                 {% if request.session.get('role') == 'admin' %}
-                <a href="/flight/users" class="px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">Users</a>
-                <a href="/flight/audit" class="px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">Audit</a>
+                <div class="nav-group relative">
+                    <button type="button" class="nav-toggle nav-item px-3 py-1.5 rounded-lg transition flex items-center gap-1">Admin <span class="nav-caret text-[10px]">▾</span></button>
+                    <div class="nav-dropdown hidden absolute left-0 top-full mt-2 w-48 rounded-xl shadow-lg p-1.5 z-50">
+                        <a href="/flight/users" class="nav-link block px-3 py-1.5 rounded-lg transition">Users</a>
+                        <a href="/flight/audit" class="nav-link block px-3 py-1.5 rounded-lg transition">Audit</a>
+                    </div>
+                </div>
                 {% endif %}
-                <a href="/flight/account" class="px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">Account</a>
-                <a href="/flight/help" class="px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">Help</a>
-                <button id="themeToggle" class="ml-1 px-2 py-1.5 rounded-lg text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition">🌙</button>
+
+                <div class="nav-group relative">
+                    <button type="button" class="nav-toggle nav-item px-3 py-1.5 rounded-lg transition flex items-center gap-1">Account <span class="nav-caret text-[10px]">▾</span></button>
+                    <div class="nav-dropdown hidden absolute left-0 top-full mt-2 w-48 rounded-xl shadow-lg p-1.5 z-50">
+                        <a href="/flight/account" class="nav-link block px-3 py-1.5 rounded-lg transition">Account</a>
+                        <a href="/flight/help" class="nav-link block px-3 py-1.5 rounded-lg transition">Help</a>
+                    </div>
+                </div>
+
+                <button id="themeToggle" class="nav-icon ml-1 px-2 py-1.5 rounded-lg text-xs transition" aria-label="Toggle theme">🌙</button>
                 <form method="POST" action="/flight/logout" class="inline">
                     <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token or '' }}">
-                    <button type="submit" class="ml-1 px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">Logout</button>
+                    <button type="submit" class="nav-item px-3 py-1.5 rounded-lg transition">Logout</button>
                 </form>
+            </nav>
+
+            {# --- Mobile: hamburger + accordion --- #}
+            <div class="flex items-center gap-2 lg:hidden">
+                <button id="themeToggleMobile" class="nav-icon px-2 py-1.5 rounded-lg text-xs transition" aria-label="Toggle theme">🌙</button>
+                <button id="menuToggle" class="nav-item px-2.5 py-1.5 rounded-lg text-lg transition" aria-label="Open menu" aria-expanded="false">☰</button>
+            </div>
+        </div>
+
+        <div id="mobileNav" class="hidden lg:hidden border-t">
+            <nav class="max-w-7xl mx-auto px-4 py-3 flex flex-col gap-1.5 text-sm font-medium" aria-label="Mobile navigation">
+                <a href="/flight/" class="nav-item nav-link-home px-3 py-2 rounded-lg transition">Dashboard</a>
+
+                <div class="mnav-group">
+                    <button type="button" class="mnav-toggle w-full text-left px-3 py-2 rounded-lg transition flex items-center justify-between">Flights <span class="mnav-caret text-[10px]">▾</span></button>
+                    <div class="mnav-sub hidden pl-4 flex flex-col gap-0.5 pb-1">
+                        <a href="/flight/flights" class="nav-link px-3 py-1.5 rounded-lg transition">Flights</a>
+                        <a href="/flight/calendar" class="nav-link px-3 py-1.5 rounded-lg transition">Calendar</a>
+                        <a href="/flight/vehicles" class="nav-link px-3 py-1.5 rounded-lg transition">Vehicles</a>
+                        <a href="/flight/compare" class="nav-link px-3 py-1.5 rounded-lg transition">Compare</a>
+                        <a href="/flight/mission" class="nav-link px-3 py-1.5 rounded-lg transition">Mission</a>
+                        <a href="/flight/report" class="nav-link px-3 py-1.5 rounded-lg transition">Report</a>
+                    </div>
+                </div>
+
+                <div class="mnav-group">
+                    <button type="button" class="mnav-toggle w-full text-left px-3 py-2 rounded-lg transition flex items-center justify-between">Community <span class="mnav-caret text-[10px]">▾</span></button>
+                    <div class="mnav-sub hidden pl-4 flex flex-col gap-0.5 pb-1">
+                        <a href="/flight/feed" class="nav-link px-3 py-1.5 rounded-lg transition">Feed</a>
+                        <a href="/flight/contacts" class="nav-link px-3 py-1.5 rounded-lg transition">Contacts</a>
+                        <a href="/flight/groups" class="nav-link px-3 py-1.5 rounded-lg transition">Groups</a>
+                        <a href="/flight/messages" class="nav-link relative px-3 py-1.5 rounded-lg transition">
+                            Messages
+                            <span id="msgUnreadBadgeMobile" class="hidden ml-1 inline-block bg-sky-600 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 align-middle"></span>
+                        </a>
+                    </div>
+                </div>
+
+                {% if request.session.get('role') == 'admin' %}
+                <div class="mnav-group">
+                    <button type="button" class="mnav-toggle w-full text-left px-3 py-2 rounded-lg transition flex items-center justify-between">Admin <span class="mnav-caret text-[10px]">▾</span></button>
+                    <div class="mnav-sub hidden pl-4 flex flex-col gap-0.5 pb-1">
+                        <a href="/flight/users" class="nav-link px-3 py-1.5 rounded-lg transition">Users</a>
+                        <a href="/flight/audit" class="nav-link px-3 py-1.5 rounded-lg transition">Audit</a>
+                    </div>
+                </div>
+                {% endif %}
+
+                <div class="mnav-group">
+                    <button type="button" class="mnav-toggle w-full text-left px-3 py-2 rounded-lg transition flex items-center justify-between">Account <span class="mnav-caret text-[10px]">▾</span></button>
+                    <div class="mnav-sub hidden pl-4 flex flex-col gap-0.5 pb-1">
+                        <a href="/flight/account" class="nav-link px-3 py-1.5 rounded-lg transition">Account</a>
+                        <a href="/flight/help" class="nav-link px-3 py-1.5 rounded-lg transition">Help</a>
+                    </div>
+                </div>
+
+                <div class="mt-1 pt-2 border-t">
+                    <form method="POST" action="/flight/logout" class="inline">
+                        <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token or '' }}">
+                        <button type="submit" class="nav-item w-full text-left px-3 py-2 rounded-lg transition">Logout</button>
+                    </form>
+                </div>
             </nav>
         </div>
     </header>
@@ -64,13 +153,26 @@
             class="fixed bottom-5 right-5 z-50 w-11 h-11 rounded-full bg-sky-600 text-white text-xl font-bold shadow-lg hover:bg-sky-500 transition">?</button>
     <div id="helpFabMenu" class="hidden fixed bottom-20 right-5 z-50 w-72 card p-3 text-sm shadow-xl">
         <p class="font-bold mb-2 text-gray-700 dark:text-gray-200">Quick help</p>
-        <a href="/flight/help" class="block px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">📖 Open the full guide</a>
-        <a href="/flight/flights" class="block px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">✈️ Flights</a>
-        <a href="/flight/vehicles" class="block px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">🚁 Vehicles</a>
-        <a href="/flight/compare" class="block px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">⚖️ Compare</a>
-        <a href="/flight/mission" class="block px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">🎯 Missione</a>
-        <a href="/flight/report" class="block px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">📄 Report</a>
-        <a href="/flight/messages" class="block px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">💬 Messages</a>
+        <a href="/flight/" class="block px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">📊 Dashboard</a>
+        <p class="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700 text-xs font-bold text-gray-400 uppercase tracking-wide">✈️ Flights</p>
+        <a href="/flight/flights" class="block px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">Flights</a>
+        <a href="/flight/vehicles" class="block px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">Vehicles</a>
+        <a href="/flight/compare" class="block px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">Compare</a>
+        <a href="/flight/mission" class="block px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">Mission</a>
+        <a href="/flight/report" class="block px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">Report</a>
+        <p class="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700 text-xs font-bold text-gray-400 uppercase tracking-wide">👥 Community</p>
+        <a href="/flight/feed" class="block px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">Feed</a>
+        <a href="/flight/contacts" class="block px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">Contacts</a>
+        <a href="/flight/groups" class="block px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">Groups</a>
+        <a href="/flight/messages" class="block px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">Messages</a>
+        {% if request.session.get('role') == 'admin' %}
+        <p class="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700 text-xs font-bold text-gray-400 uppercase tracking-wide">🛡️ Admin</p>
+        <a href="/flight/users" class="block px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">Users</a>
+        <a href="/flight/audit" class="block px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">Audit</a>
+        {% endif %}
+        <p class="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700 text-xs font-bold text-gray-400 uppercase tracking-wide">⚙️ Account</p>
+        <a href="/flight/account" class="block px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">Account</a>
+        <a href="/flight/help" class="block px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">📖 Help</a>
         <p class="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-400">Press <kbd>?</kbd> anywhere to toggle this menu.</p>
     </div>
     <script>
@@ -101,35 +203,92 @@
     (function() {
         const saved = localStorage.getItem('theme');
         if (saved === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
-        const btn = document.getElementById('themeToggle');
-        if (btn) {
-            btn.addEventListener('click', () => {
-                const html = document.documentElement;
-                const isDark = html.getAttribute('data-theme') === 'dark';
-                html.setAttribute('data-theme', isDark ? '' : 'dark');
-                localStorage.setItem('theme', isDark ? '' : 'dark');
-                btn.textContent = isDark ? '🌙' : '☀️';
-            });
+        function setThemeIcon(btn, isDark) {
+            if (btn) btn.textContent = isDark ? '☀️' : '🌙';
         }
+        function applyTheme(isDark) {
+            const html = document.documentElement;
+            html.setAttribute('data-theme', isDark ? 'dark' : '');
+            localStorage.setItem('theme', isDark ? 'dark' : '');
+            setThemeIcon(document.getElementById('themeToggle'), isDark);
+            setThemeIcon(document.getElementById('themeToggleMobile'), isDark);
+        }
+        [document.getElementById('themeToggle'), document.getElementById('themeToggleMobile')].forEach(btn => {
+            if (btn) btn.addEventListener('click', () => applyTheme(document.documentElement.getAttribute('data-theme') !== 'dark'));
+        });
     })();
     (function() {
-        const badge = document.getElementById('msgUnreadBadge');
-        if (!badge) return;
+        const badges = [document.getElementById('msgUnreadBadge'), document.getElementById('msgUnreadBadgeMobile')];
+        if (!badges.some(Boolean)) return;
         async function refresh() {
             try {
                 const res = await fetch('/flight/api/messages/unread-count');
                 if (!res.ok) return;
                 const data = await res.json();
-                if (data.unread > 0) {
-                    badge.textContent = data.unread > 99 ? '99+' : data.unread;
-                    badge.classList.remove('hidden');
-                } else {
-                    badge.classList.add('hidden');
-                }
+                badges.forEach(b => {
+                    if (!b) return;
+                    if (data.unread > 0) {
+                        b.textContent = data.unread > 99 ? '99+' : data.unread;
+                        b.classList.remove('hidden');
+                    } else {
+                        b.classList.add('hidden');
+                    }
+                });
             } catch(e) {}
         }
         refresh();
         setInterval(refresh, 30000);
+    })();
+    (function() {
+        // Desktop grouped dropdowns
+        document.querySelectorAll('.nav-group').forEach(group => {
+            const toggle = group.querySelector('.nav-toggle');
+            const menu = group.querySelector('.nav-dropdown');
+            if (!toggle || !menu) return;
+            toggle.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const isOpen = !menu.classList.contains('hidden');
+                closeAllNav();
+                menu.classList.toggle('hidden', isOpen);
+                group.classList.toggle('open', !isOpen);
+                toggle.setAttribute('aria-expanded', String(!isOpen));
+            });
+        });
+        function closeAllNav() {
+            document.querySelectorAll('.nav-group').forEach(g => {
+                const m = g.querySelector('.nav-dropdown');
+                const t = g.querySelector('.nav-toggle');
+                if (m) m.classList.add('hidden');
+                if (t) t.setAttribute('aria-expanded', 'false');
+                g.classList.remove('open');
+            });
+        }
+        document.addEventListener('click', closeAllNav);
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAllNav(); });
+
+        // Mobile hamburger + accordion
+        const menuToggle = document.getElementById('menuToggle');
+        const mobileNav = document.getElementById('mobileNav');
+        if (menuToggle && mobileNav) {
+            menuToggle.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const open = mobileNav.classList.contains('hidden');
+                mobileNav.classList.toggle('hidden', !open);
+                menuToggle.setAttribute('aria-expanded', String(open));
+                menuToggle.textContent = open ? '✕' : '☰';
+            });
+            document.querySelectorAll('.mnav-toggle').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const group = btn.parentElement;
+                    const sub = group.querySelector('.mnav-sub');
+                    if (sub) {
+                        sub.classList.toggle('hidden');
+                        group.classList.toggle('open', sub.classList.contains('hidden') === false);
+                    }
+                });
+            });
+        }
     })();
     (function() {
         const fab = document.getElementById('helpFab');

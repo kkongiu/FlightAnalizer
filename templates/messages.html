@@ -71,6 +71,7 @@
             <input id="msgTo" type="text" list="userList" placeholder="username"
                    style="width:100%;padding:0.55rem 0.7rem;border:1px solid rgba(128,128,128,0.25);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:0.85rem;">
             <datalist id="userList"></datalist>
+            <div id="contactChips" style="margin-top:0.5rem;display:flex;flex-wrap:wrap;gap:0.35rem;"></div>
         </div>
         <div style="margin-bottom:0.75rem;">
             <label style="display:block;font-size:0.7rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.3rem;">Message</label>
@@ -146,10 +147,11 @@ async function loadConversations() {
           </span>
         </span>
       </button>`).join('');
-    list.querySelectorAll('.conv-row').forEach(btn =>
-      btn.addEventListener('mouseenter', () => { if (parseInt(btn.dataset.other) !== currentOther) btn.style.background = 'rgba(128,128,128,0.06)'; })
-         .addEventListener('mouseleave', () => { if (parseInt(btn.dataset.other) !== currentOther) btn.style.background = 'none'; })
-         .addEventListener('click', () => openThread(parseInt(btn.dataset.other))));
+    list.querySelectorAll('.conv-row').forEach(btn => {
+      btn.addEventListener('mouseenter', () => { if (parseInt(btn.dataset.other) !== currentOther) btn.style.background = 'rgba(128,128,128,0.06)'; });
+      btn.addEventListener('mouseleave', () => { if (parseInt(btn.dataset.other) !== currentOther) btn.style.background = 'none'; });
+      btn.addEventListener('click', () => openThread(parseInt(btn.dataset.other)));
+    });
   } catch(e) {
     list.innerHTML = '<div style="padding:0.75rem 1rem;color:var(--danger);">Error</div>';
   }
@@ -226,13 +228,40 @@ async function sendMessage() {
 }
 
 async function loadUsers() {
+  const names = new Set();
+  let friends = [];
   try {
-    const res = await fetch('/flight/api/messages/conversations');
-    if (!res.ok) return;
-    const convs = await res.json();
-    document.getElementById('userList').innerHTML = convs
-      .map(c => `<option value="${esc(c.other_username)}">`).join('');
+    const convs = await (await fetch('/flight/api/messages/conversations')).json();
+    convs.forEach(c => names.add(c.other_username));
   } catch(e) {}
+  try {
+    const data = await (await fetch('/flight/api/contacts')).json();
+    friends = data.friends || [];
+    friends.forEach(f => names.add(f.username));
+    (data.received || []).forEach(r => names.add(r.peer_name));
+    (data.sent || []).forEach(s => names.add(s.peer_name));
+  } catch(e) {}
+  document.getElementById('userList').innerHTML =
+    Array.from(names).map(n => `<option value="${esc(n)}">`).join('');
+  const chips = document.getElementById('contactChips');
+  if (friends.length) {
+    chips.innerHTML = friends.map(f => `
+      <button type="button" class="contact-chip"
+              data-user="${esc(f.username)}"
+              style="font-size:0.7rem;padding:0.25rem 0.6rem;border-radius:999px;border:1px solid rgba(14,165,233,0.35);background:var(--accent-dim);color:var(--accent);cursor:pointer;font-weight:600;transition:all 0.15s;">👤 ${esc(f.username)}</button>`).join('');
+    chips.querySelectorAll('.contact-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        document.getElementById('msgTo').value = chip.dataset.user;
+        document.getElementById('msgText').focus();
+        chips.querySelectorAll('.contact-chip').forEach(c => {
+          c.style.background = c === chip ? 'var(--accent)' : 'var(--accent-dim)';
+          c.style.color = c === chip ? '#fff' : 'var(--accent)';
+        });
+      });
+    });
+  } else {
+    chips.innerHTML = '';
+  }
 }
 
 async function loadFlights() {

@@ -467,7 +467,7 @@ def _username_map() -> dict:
 
 def get_all_flights(owner_id: int | None = None, is_admin: bool = False) -> list[dict]:
     with _get_conn() as conn:
-        if is_admin or owner_id is None:
+        if owner_id is None:
             rows = conn.execute("SELECT * FROM flights ORDER BY date DESC, start_time DESC").fetchall()
         else:
             rows = conn.execute(
@@ -482,7 +482,7 @@ def get_all_flights(owner_id: int | None = None, is_admin: bool = False) -> list
 
 def get_flight(filename: str, owner_id: int | None = None, is_admin: bool = False) -> dict | None:
     with _get_conn() as conn:
-        if is_admin or owner_id is None:
+        if owner_id is None:
             row = conn.execute("SELECT * FROM flights WHERE filename = ?", (filename,)).fetchone()
         else:
             row = conn.execute(
@@ -496,7 +496,7 @@ def get_flight(filename: str, owner_id: int | None = None, is_admin: bool = Fals
 
 def delete_flight(filename: str, owner_id: int | None = None, is_admin: bool = False) -> bool:
     with _get_conn() as conn:
-        if is_admin or owner_id is None:
+        if owner_id is None:
             cur = conn.execute("DELETE FROM flights WHERE filename = ?", (filename,))
         else:
             cur = conn.execute("DELETE FROM flights WHERE filename = ? AND owner_id = ?",
@@ -506,7 +506,7 @@ def delete_flight(filename: str, owner_id: int | None = None, is_admin: bool = F
 
 def update_flight_events(filename: str, events: list, owner_id: int | None = None, is_admin: bool = False) -> bool:
     with _get_conn() as conn:
-        if is_admin or owner_id is None:
+        if owner_id is None:
             cur = conn.execute("UPDATE flights SET events = ? WHERE filename = ?",
                                (json.dumps(events), filename))
         else:
@@ -517,7 +517,7 @@ def update_flight_events(filename: str, events: list, owner_id: int | None = Non
 
 def rename_flight(old_filename: str, new_filename: str, owner_id: int | None = None, is_admin: bool = False) -> bool:
     with _get_conn() as conn:
-        if is_admin or owner_id is None:
+        if owner_id is None:
             cur = conn.execute("UPDATE flights SET filename = ? WHERE filename = ?",
                                (new_filename, old_filename))
         else:
@@ -528,7 +528,7 @@ def rename_flight(old_filename: str, new_filename: str, owner_id: int | None = N
 
 def update_notes(filename: str, notes: str, owner_id: int | None = None, is_admin: bool = False) -> bool:
     with _get_conn() as conn:
-        if is_admin or owner_id is None:
+        if owner_id is None:
             cur = conn.execute("UPDATE flights SET notes = ? WHERE filename = ?", (notes, filename))
         else:
             cur = conn.execute("UPDATE flights SET notes = ? WHERE filename = ? AND owner_id = ?",
@@ -538,7 +538,7 @@ def update_notes(filename: str, notes: str, owner_id: int | None = None, is_admi
 
 def update_flight_track(filename: str, coordinates: list, stats: dict, owner_id: int | None = None, is_admin: bool = False) -> bool:
     with _get_conn() as conn:
-        if is_admin or owner_id is None:
+        if owner_id is None:
             cur = conn.execute("""
                 UPDATE flights SET
                     coordinates = ?,
@@ -600,7 +600,7 @@ def update_flight_track(filename: str, coordinates: list, stats: dict, owner_id:
 
 def get_vehicles(owner_id: int | None = None, is_admin: bool = False) -> list[Vehicle]:
     with _get_conn() as conn:
-        if is_admin or owner_id is None:
+        if owner_id is None:
             rows = conn.execute("SELECT * FROM vehicles ORDER BY is_default DESC, name ASC").fetchall()
         else:
             rows = conn.execute(
@@ -611,7 +611,7 @@ def get_vehicles(owner_id: int | None = None, is_admin: bool = False) -> list[Ve
 
 def get_vehicle(vehicle_id: int, owner_id: int | None = None, is_admin: bool = False) -> Vehicle | None:
     with _get_conn() as conn:
-        if is_admin or owner_id is None:
+        if owner_id is None:
             row = conn.execute("SELECT * FROM vehicles WHERE id = ?", (vehicle_id,)).fetchone()
         else:
             row = conn.execute("SELECT * FROM vehicles WHERE id = ? AND owner_id = ?",
@@ -621,7 +621,7 @@ def get_vehicle(vehicle_id: int, owner_id: int | None = None, is_admin: bool = F
 
 def get_default_vehicle(owner_id: int | None = None, is_admin: bool = False) -> Vehicle | None:
     with _get_conn() as conn:
-        if is_admin or owner_id is None:
+        if owner_id is None:
             row = conn.execute("SELECT * FROM vehicles WHERE is_default = 1 LIMIT 1").fetchone()
         else:
             row = conn.execute("SELECT * FROM vehicles WHERE is_default = 1 AND owner_id = ? LIMIT 1",
@@ -652,7 +652,7 @@ def create_vehicle(name: str, vehicle_type: str = "drone", is_default: bool = Fa
 def update_vehicle(vehicle_id: int, name: str = None, vehicle_type: str = None, is_default: bool = None,
                    owner_id: int | None = None, is_admin: bool = False) -> Vehicle | None:
     with _get_conn() as conn:
-        if is_admin or owner_id is None:
+        if owner_id is None:
             existing = conn.execute("SELECT * FROM vehicles WHERE id = ?", (vehicle_id,)).fetchone()
         else:
             existing = conn.execute("SELECT * FROM vehicles WHERE id = ? AND owner_id = ?",
@@ -663,7 +663,7 @@ def update_vehicle(vehicle_id: int, name: str = None, vehicle_type: str = None, 
         new_type = vehicle_type if vehicle_type is not None else existing["vehicle_type"]
         new_default = is_default if is_default is not None else bool(existing["is_default"])
         if new_default:
-            _clear_defaults(conn, existing["owner_id"] if not (is_admin or owner_id is None) else owner_id)
+            _clear_defaults(conn, existing["owner_id"] if owner_id is None else owner_id)
         conn.execute(
             "UPDATE vehicles SET name = ?, vehicle_type = ?, is_default = ? WHERE id = ?",
             (new_name, new_type, 1 if new_default else 0, vehicle_id),
@@ -673,7 +673,7 @@ def update_vehicle(vehicle_id: int, name: str = None, vehicle_type: str = None, 
 
 def delete_vehicle(vehicle_id: int, owner_id: int | None = None, is_admin: bool = False) -> bool:
     with _get_conn() as conn:
-        if is_admin or owner_id is None:
+        if owner_id is None:
             cur = conn.execute("DELETE FROM vehicles WHERE id = ?", (vehicle_id,))
         else:
             cur = conn.execute("DELETE FROM vehicles WHERE id = ? AND owner_id = ?",
@@ -685,7 +685,7 @@ def delete_vehicle(vehicle_id: int, owner_id: int | None = None, is_admin: bool 
 
 def set_vehicle_photo(vehicle_id: int, photo_path: str, owner_id: int | None = None, is_admin: bool = False) -> bool:
     with _get_conn() as conn:
-        if is_admin or owner_id is None:
+        if owner_id is None:
             cur = conn.execute("UPDATE vehicles SET photo = ? WHERE id = ?", (photo_path, vehicle_id))
         else:
             cur = conn.execute("UPDATE vehicles SET photo = ? WHERE id = ? AND owner_id = ?",
@@ -695,7 +695,7 @@ def set_vehicle_photo(vehicle_id: int, photo_path: str, owner_id: int | None = N
 
 def get_vehicle_stats(owner_id: int | None = None, is_admin: bool = False) -> list[dict]:
     with _get_conn() as conn:
-        if is_admin or owner_id is None:
+        if owner_id is None:
             rows = conn.execute("""
                 SELECT
                     v.id, v.name, v.vehicle_type, v.photo, v.is_default,
@@ -733,7 +733,7 @@ def get_battery_health_by_vehicle(vehicle_id: int | None = None, owner_id: int |
                                   is_admin: bool = False) -> list[dict]:
     with _get_conn() as conn:
         if vehicle_id:
-            if is_admin or owner_id is None:
+            if owner_id is None:
                 rows = conn.execute("""
                     SELECT date, battery_start_v, battery_end_v, battery_min_v, battery_consumed_mah
                     FROM flights WHERE vehicle_id = ? AND battery_start_v > 0
@@ -746,7 +746,7 @@ def get_battery_health_by_vehicle(vehicle_id: int | None = None, owner_id: int |
                     ORDER BY date ASC
                 """, (vehicle_id, owner_id)).fetchall()
         else:
-            if is_admin or owner_id is None:
+            if owner_id is None:
                 rows = conn.execute("""
                     SELECT f.date, f.battery_start_v, f.battery_end_v, f.battery_min_v,
                            f.battery_consumed_mah, v.id AS vehicle_id, v.name AS vehicle_name
@@ -768,7 +768,7 @@ def get_battery_health_by_vehicle(vehicle_id: int | None = None, owner_id: int |
 def assign_vehicle_to_flight(filename: str, vehicle_id: int | None, owner_id: int | None = None,
                              is_admin: bool = False) -> bool:
     with _get_conn() as conn:
-        if is_admin or owner_id is None:
+        if owner_id is None:
             cur = conn.execute("UPDATE flights SET vehicle_id = ? WHERE filename = ?",
                                (vehicle_id, filename))
         else:
@@ -780,7 +780,7 @@ def assign_vehicle_to_flight(filename: str, vehicle_id: int | None, owner_id: in
 def set_flight_track_source(filename: str, source: str, owner_id: int | None = None,
                             is_admin: bool = False) -> bool:
     with _get_conn() as conn:
-        if is_admin or owner_id is None:
+        if owner_id is None:
             cur = conn.execute("UPDATE flights SET track_source = ? WHERE filename = ?",
                                (source, filename))
         else:
@@ -791,7 +791,7 @@ def set_flight_track_source(filename: str, source: str, owner_id: int | None = N
 
 def get_flight_tags(filename: str, owner_id: int | None = None, is_admin: bool = False) -> list[str]:
     with _get_conn() as conn:
-        if is_admin or owner_id is None:
+        if owner_id is None:
             row = conn.execute("SELECT tags FROM flights WHERE filename = ?", (filename,)).fetchone()
         else:
             row = conn.execute("SELECT tags FROM flights WHERE filename = ? AND owner_id = ?",
@@ -804,7 +804,7 @@ def get_flight_tags(filename: str, owner_id: int | None = None, is_admin: bool =
 def set_flight_tags(filename: str, tags: list[str], owner_id: int | None = None,
                     is_admin: bool = False) -> bool:
     with _get_conn() as conn:
-        if is_admin or owner_id is None:
+        if owner_id is None:
             cur = conn.execute("UPDATE flights SET tags = ? WHERE filename = ?",
                                (json.dumps(tags), filename))
         else:
@@ -884,7 +884,7 @@ def recalculate_home_distances():
 
 def get_all_tags(owner_id: int | None = None, is_admin: bool = False) -> list[str]:
     with _get_conn() as conn:
-        if is_admin or owner_id is None:
+        if owner_id is None:
             rows = conn.execute("SELECT tags FROM flights").fetchall()
         else:
             rows = conn.execute("SELECT tags FROM flights WHERE owner_id = ?", (owner_id,)).fetchall()
@@ -1163,6 +1163,17 @@ def verify_user(username: str, password: str) -> dict | None:
     return get_user_by_id(user["id"])
 
 
+def verify_password_for_user(user_id: int, password: str) -> bool:
+    """Verify a password against a user by id (for double-confirm flows)."""
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT password_hash, salt FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+    if not row:
+        return False
+    return _verify_password(password, row["password_hash"], row["salt"])
+
+
 # --- Audit log (F4) ---
 
 
@@ -1437,7 +1448,7 @@ def cover_map(filenames: list[str]) -> dict[str, int | None]:
 
 def delete_flight_photo(photo_id: int, owner_id: int, is_admin: bool = False) -> dict | None:
     """Remove a photo (DB row). Returns the photo including stored_name so the
-    caller can delete the file. Enforces ownership unless admin."""
+    caller can delete the file. Enforces ownership."""
     with _get_conn() as conn:
         row = conn.execute("SELECT * FROM flight_photos WHERE id = ?", (photo_id,)).fetchone()
         if not row:
@@ -1446,7 +1457,7 @@ def delete_flight_photo(photo_id: int, owner_id: int, is_admin: bool = False) ->
             "SELECT owner_id FROM flights WHERE filename = ?", (row["flight_filename"],)).fetchone()
         if not flight:
             return None
-        if not is_admin and flight["owner_id"] != owner_id:
+        if flight["owner_id"] != owner_id:
             return None
         conn.execute("DELETE FROM flight_photos WHERE id = ?", (photo_id,))
         return dict(row)
@@ -1454,7 +1465,7 @@ def delete_flight_photo(photo_id: int, owner_id: int, is_admin: bool = False) ->
 
 def set_flight_cover(photo_id: int, flight_filename: str, owner_id: int,
                      is_admin: bool = False) -> bool:
-    """Mark a photo as the flight cover. Enforces ownership unless admin."""
+    """Mark a photo as the flight cover. Enforces ownership."""
     with _get_conn() as conn:
         photo = conn.execute("SELECT * FROM flight_photos WHERE id = ?",
                              (photo_id,)).fetchone()
@@ -1462,7 +1473,7 @@ def set_flight_cover(photo_id: int, flight_filename: str, owner_id: int,
                               (flight_filename,)).fetchone()
         if not photo or not flight or photo["flight_filename"] != flight_filename:
             return False
-        if not is_admin and flight["owner_id"] != owner_id:
+        if flight["owner_id"] != owner_id:
             return False
         conn.execute("UPDATE flight_photos SET is_cover = 0 "
                      "WHERE flight_filename = ?", (flight_filename,))
@@ -1980,7 +1991,7 @@ def set_flight_visibility(filename: str, visibility: str, owner_id: int | None =
     if visibility not in ("public", "contacts", "private"):
         return False
     with _get_conn() as conn:
-        if is_admin or owner_id is None:
+        if owner_id is None:
             cur = conn.execute("UPDATE flights SET visibility = ? WHERE filename = ?",
                                (visibility, filename))
         else:
@@ -1993,7 +2004,7 @@ def set_flight_visibility(filename: str, visibility: str, owner_id: int | None =
 def set_flight_shared_group(filename: str, group_id: int | None, owner_id: int | None = None,
                             is_admin: bool = False) -> bool:
     with _get_conn() as conn:
-        if is_admin or owner_id is None:
+        if owner_id is None:
             cur = conn.execute("UPDATE flights SET shared_with_group = ? WHERE filename = ?",
                                (group_id, filename))
         else:

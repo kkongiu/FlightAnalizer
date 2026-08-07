@@ -53,75 +53,99 @@ body {
 ::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
 
 /* ===== HEADER ===== */
-header {
-    background: linear-gradient(135deg, #0f0f23 0%, #1a1a3e 100%);
-    color: white;
-    padding: 0.75rem 2rem;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    position: sticky;
-    top: 0;
-    z-index: 100;
+.app-header {
+    background: var(--surface);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    border-bottom: 1px solid rgba(14,165,233,0.1);
-    box-shadow: 0 1px 8px rgba(0,0,0,0.2);
+    border-bottom: 1px solid var(--surface-border);
+    box-shadow: 0 1px 8px rgba(0,0,0,0.15);
 }
 
-header h1 {
-    font-size: 1.25rem;
-    font-weight: 700;
-    letter-spacing: -0.5px;
-}
-
-header h1 a.header-logo {
-    color: white;
-    text-decoration: none;
-    transition: color var(--transition);
-}
-header h1 a.header-logo:hover {
-    color: var(--accent);
-}
-
-header nav {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-}
-
-header nav a {
-    color: rgba(255,255,255,0.7);
+.app-header .nav-item {
+    color: var(--text-secondary);
     text-decoration: none;
     font-weight: 500;
-    padding: 0.4rem 0.8rem;
-    border-radius: var(--radius-sm);
-    font-size: 0.85rem;
     transition: all var(--transition);
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 0.85rem;
 }
-header nav a:hover {
-    color: white;
-    background: rgba(14,165,233,0.1);
+.app-header .nav-item:hover {
+    color: var(--text);
+    background: var(--accent-dim);
 }
-header nav a[href="/flight/"] {
+.app-header .nav-link-home {
     color: var(--accent);
     font-weight: 600;
 }
 
-.nav-link-btn {
+/* Dropdown panels */
+.app-header .nav-dropdown {
+    background: var(--surface-border);
+    border: 1px solid var(--surface-border);
+    box-shadow: var(--shadow-lg);
+}
+.app-header .nav-dropdown .nav-link {
+    color: var(--text);
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 0.85rem;
+}
+.app-header .nav-dropdown .nav-link + .nav-link {
+    margin-top: 0.25rem;
+}
+.app-header .nav-dropdown .nav-link:hover {
+    background: var(--accent-dim);
+    color: var(--text);
+}
+
+/* Mobile menu */
+#mobileNav {
+    background: var(--surface);
+    border-color: var(--surface-border);
+}
+#mobileNav .nav-item,
+#mobileNav .mnav-toggle {
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-weight: 500;
     background: none;
     border: none;
-    color: rgba(255,255,255,0.7);
-    font-weight: 500;
-    padding: 0.4rem 0.8rem;
-    border-radius: var(--radius-sm);
-    font-size: 0.85rem;
     cursor: pointer;
-    transition: all var(--transition);
+    font-size: 0.85rem;
 }
-.nav-link-btn:hover {
-    color: white;
-    background: rgba(14,165,233,0.1);
+#mobileNav .nav-item:hover,
+#mobileNav .mnav-toggle:hover {
+    color: var(--text);
+    background: var(--accent-dim);
+}
+#mobileNav .nav-link-home {
+    color: var(--accent);
+    font-weight: 600;
+}
+#mobileNav .nav-link {
+    color: var(--text);
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 0.85rem;
+}
+#mobileNav .nav-link:hover {
+    background: var(--accent-dim);
+    color: var(--text);
+}
+
+/* Icon buttons (theme toggle) */
+.app-header .nav-icon {
+    color: var(--text-muted);
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 0.8rem;
+}
+.app-header .nav-icon:hover {
+    color: var(--text);
+    background: var(--accent-dim);
 }
 
 /* ===== LAYOUT ===== */
@@ -1108,3 +1132,18 @@ th.sel-col, td.sel-col { width: 2.4rem; text-align: center; }
 .photo-del { color: #fca5a5; }
 .cover-thumb { width: 56px; height: 42px; object-fit: cover; border-radius: 4px; display: block; }
 .cover-empty { background: repeating-linear-gradient(45deg,#8880,#8880 6px,#8882 6px,#8882 12px); }
+
+/* --- Navigation: grouped dropdowns (desktop) + accordion (mobile) --- */
+.nav-caret, .mnav-caret {
+    display: inline-block;
+    transition: transform 0.15s ease;
+}
+.nav-group[aria-open="true"] > .nav-toggle .nav-caret,
+.nav-group.open > .nav-toggle .nav-caret,
+.mnav-group.open > .mnav-toggle .mnav-caret {
+    transform: rotate(180deg);
+}
+@media (hover: hover) {
+    .nav-group:hover > .nav-dropdown { display: block; }
+    .nav-group:hover > .nav-toggle .nav-caret { transform: rotate(180deg); }
+}

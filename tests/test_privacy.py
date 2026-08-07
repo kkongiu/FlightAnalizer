@@ -151,11 +151,26 @@ def test_self_delete_requires_confirmation(client):
     assert get_user("alice") is not None
 
 
+def test_self_delete_requires_correct_password(client):
+    _seed(client)
+    assert _login(client)
+    # wrong password is rejected even with confirm=true
+    r = client.request("DELETE", "/api/account",
+                       json={"confirm": True, "backup": False, "password": "wrong"})
+    assert r.status_code == 403
+    assert get_user("alice") is not None
+    # missing password is rejected
+    r = client.request("DELETE", "/api/account", json={"confirm": True, "backup": False})
+    assert r.status_code == 403
+    assert get_user("alice") is not None
+
+
 def test_self_delete_cascade_removes_data(client):
     _seed(client)
     (client.app_mod.LOG_DIR / "alice1.csv").write_text("a")
     assert _login(client)
-    r = client.request("DELETE", "/api/account", json={"confirm": True, "backup": False})
+    r = client.request("DELETE", "/api/account",
+                       json={"confirm": True, "backup": False, "password": "alicepass"})
     assert r.status_code == 200
     body = r.json()
     assert body["flights_deleted"] == 1
@@ -168,7 +183,8 @@ def test_self_delete_cascade_removes_data(client):
 
 def test_self_delete_blocked_for_admin(client):
     assert _login_admin(client)
-    r = client.request("DELETE", "/api/account", json={"confirm": True})
+    r = client.request("DELETE", "/api/account",
+                       json={"confirm": True, "password": "admin"})
     assert r.status_code == 400
     assert get_user("admin") is not None
 
@@ -176,7 +192,8 @@ def test_self_delete_blocked_for_admin(client):
 def test_self_delete_logged_in_audit(client):
     _seed(client)
     assert _login(client)
-    client.request("DELETE", "/api/account", json={"confirm": True, "backup": False})
+    client.request("DELETE", "/api/account",
+                   json={"confirm": True, "backup": False, "password": "alicepass"})
     entries = get_audit_log()
     assert any(e["username"] == "alice" and e["action"] == "account_delete" for e in entries)
 

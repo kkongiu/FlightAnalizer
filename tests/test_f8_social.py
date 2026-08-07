@@ -156,7 +156,7 @@ def test_groups_admin_api(client):
     assert r.status_code == 200
     data = client.get("/api/groups").json()["groups"]
     assert data[0]["name"] == "TEAM"
-    assert [m["user_id"] for m in data[0]["members"]] == [bob["id"]]
+    assert [m["user_id"] for m in data[0]["members"]] == [1, bob["id"]]  # creator + bob
     r = client.delete(f"/api/groups/{gid}/members/{bob['id']}")
     assert r.status_code == 200
     r = client.delete(f"/api/groups/{gid}")

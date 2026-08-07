@@ -1,22 +1,22 @@
 {% extends "base.html" %}
-{% block title %}Missione INAV - Pocket Log Analyzer{% endblock %}
+{% block title %}INAV Mission - Pocket Log Analyzer{% endblock %}
 {% block content %}
 <div class="mission-page">
     <div class="header-bar" style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
-        <h2 style="margin:0;">Missione INAV</h2>
+        <h2 style="margin:0;">INAV Mission</h2>
         <select id="flightSelect" style="flex:1;min-width:220px;padding:0.45rem 0.6rem;border:2px solid var(--accent);border-radius:6px;background:var(--surface);color:var(--text);font-size:0.85rem;font-weight:700;box-shadow:var(--shadow-sm);">
-            <option value=""{% if not current %} selected{% endif %}>— Seleziona un volo —</option>
+            <option value=""{% if not current %} selected{% endif %}>— Select a flight —</option>
             {% for f in flights %}
             <option value="{{ f.filename }}"{% if current and current.filename == f.filename %} selected{% endif %}>{{ f.date }} {{ f.start_time }} · {{ f.filename }}</option>
             {% endfor %}
         </select>
         <div style="display:flex;gap:0.4rem;">
-            <button id="scratchBtn" class="btn-primary" style="font-size:0.75rem;padding:0.3rem 0.6rem;background:var(--accent);border:none;color:#fff;">Da zero</button>
-            <button id="resetBtn" class="btn-ghost" style="font-size:0.75rem;padding:0.3rem 0.6rem;">Ripristina</button>
-            <button id="deleteLastBtn" class="btn-ghost" style="font-size:0.75rem;padding:0.3rem 0.6rem;">Cancella</button>
-            <button id="undoBtn" class="btn-ghost" style="font-size:0.75rem;padding:0.3rem 0.6rem;" disabled>Annulla</button>
-            <button id="previewBtn" class="btn-primary" style="font-size:0.75rem;padding:0.3rem 0.6rem;">Anteprima</button>
-            <button id="exportBtn" class="btn-primary" style="font-size:0.75rem;padding:0.3rem 0.6rem;">Esporta .mission</button>
+            <button id="scratchBtn" class="btn-primary" style="font-size:0.75rem;padding:0.3rem 0.6rem;background:var(--accent);border:none;color:#fff;">From scratch</button>
+            <button id="resetBtn" class="btn-ghost" style="font-size:0.75rem;padding:0.3rem 0.6rem;">Reset</button>
+            <button id="deleteLastBtn" class="btn-ghost" style="font-size:0.75rem;padding:0.3rem 0.6rem;">Delete</button>
+            <button id="undoBtn" class="btn-ghost" style="font-size:0.75rem;padding:0.3rem 0.6rem;" disabled>Undo</button>
+            <button id="previewBtn" class="btn-primary" style="font-size:0.75rem;padding:0.3rem 0.6rem;">Preview</button>
+            <button id="exportBtn" class="btn-primary" style="font-size:0.75rem;padding:0.3rem 0.6rem;">Export .mission</button>
         </div>
     </div>
     <div id="statusBar" style="margin-top:0.4rem;font-size:0.75rem;color:var(--text-secondary);"></div>
@@ -28,55 +28,55 @@
         </div>
         <div class="mission-controls">
             <div class="ctrl-group">
-                <h4>Taglio traccia</h4>
-                <label class="ctrl-check"><input type="checkbox" id="cutEnabled" checked> Taglia inizio / fine</label>
-                <div class="ctrl-row"><span class="ctrl-lbl">Inizio</span>
+                <h4>Track cut</h4>
+                <label class="ctrl-check"><input type="checkbox" id="cutEnabled" checked> Cut start / end</label>
+                <div class="ctrl-row"><span class="ctrl-lbl">Start</span>
                     <input type="range" id="cutStart" min="0" max="100" value="0"><span class="ctrl-val" id="cutStartVal">0%</span></div>
-                <div class="ctrl-row"><span class="ctrl-lbl">Fine</span>
+                <div class="ctrl-row"><span class="ctrl-lbl">End</span>
                     <input type="range" id="cutEnd" min="0" max="100" value="100"><span class="ctrl-val" id="cutEndVal">100%</span></div>
-                <label class="ctrl-check"><input type="checkbox" id="midEnabled"> Rimuovi segmento centrale</label>
-                <div class="ctrl-row"><span class="ctrl-lbl">Da</span>
+                <label class="ctrl-check"><input type="checkbox" id="midEnabled"> Remove middle segment</label>
+                <div class="ctrl-row"><span class="ctrl-lbl">From</span>
                     <input type="range" id="midStart" min="0" max="100" value="35"><span class="ctrl-val" id="midStartVal">35%</span></div>
-                <div class="ctrl-row"><span class="ctrl-lbl">A</span>
+                <div class="ctrl-row"><span class="ctrl-lbl">To</span>
                     <input type="range" id="midEnd" min="0" max="100" value="65"><span class="ctrl-val" id="midEndVal">65%</span></div>
             </div>
             <div class="ctrl-group">
-                <h4>Waypoint</h4>
-                <div class="ctrl-row"><span class="ctrl-lbl">Numero</span>
+                <h4>Waypoints</h4>
+                <div class="ctrl-row"><span class="ctrl-lbl">Number</span>
                     <input type="range" id="maxPoints" min="2" max="120" value="60"><span class="ctrl-val" id="maxPointsVal">60</span></div>
-                <div class="ctrl-row"><span class="ctrl-lbl">Quota</span>
+                <div class="ctrl-row"><span class="ctrl-lbl">Altitude</span>
                     <select id="altMode">
-                        <option value="fixed" selected>Fissa</option>
-                        <option value="track">Usa traccia</option>
-                        <option value="offset">Offset traccia</option>
+                        <option value="fixed" selected>Fixed</option>
+                        <option value="track">Use track</option>
+                        <option value="offset">Track offset</option>
                     </select></div>
-                <div class="ctrl-row"><span class="ctrl-lbl">Valore (m)</span>
+                <div class="ctrl-row"><span class="ctrl-lbl">Value (m)</span>
                     <input type="number" id="altValue" value="50" step="5"></div>
-                <label class="ctrl-check"><input type="checkbox" id="relative" checked> Quota relativa alla home</label>
-                <div class="ctrl-row"><span class="ctrl-lbl">Velocità (cm/s)</span>
+                <label class="ctrl-check"><input type="checkbox" id="relative" checked> Relative to home altitude</label>
+                <div class="ctrl-row"><span class="ctrl-lbl">Speed (cm/s)</span>
                     <input type="number" id="cruiseSpeed" value="1000" step="50"></div>
-                <div class="ctrl-row"><span class="ctrl-lbl">WP finale</span>
+                <div class="ctrl-row"><span class="ctrl-lbl">Final WP</span>
                     <select id="finalAction">
                         <option value="RTH" selected>RTH</option>
-                        <option value="NONE">Nessuno</option>
+                        <option value="NONE">None</option>
                         <option value="LAND">LAND</option>
                     </select></div>
             </div>
-            <p class="ctrl-hint">Quando selezioni un volo la linea blu viene sostituita dalla linea dei waypoint. Usa i marker colorati (verde/rosso/arancio/viola) per i tagli; poi clicca sulla mappa per aggiungere altri waypoint dopo il taglio. I marker numerati rossi sono i waypoint: cliccandoli li selezioni per modificarli o eliminarli (popup o tasto Canc), trascinandoli li sposti. «Da zero»: clicca sulla mappa per creare la missione.</p>
+            <p class="ctrl-hint">When you select a flight, the blue line is replaced by the waypoint line. Use the colored markers (green/red/orange/purple) for cuts; then click the map to add more waypoints after the cut. The numbered red markers are waypoints: click to select them for editing or deleting (popup or Delete key), drag to move them. "From scratch": click the map to create the mission.</p>
         </div>
     </div>
 
     <div class="mission-wp" style="margin-top:1rem;">
-        <h3>Waypoint</h3>
+        <h3>Waypoints</h3>
         <div class="wp-table-wrap" style="overflow-x:auto;max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;">
             <table id="wpTable" style="width:100%;font-size:0.75rem;border-collapse:collapse;">
                 <thead><tr>
                     <th style="padding:0.35rem 0.5rem;text-align:left;background:var(--surface);border-bottom:2px solid var(--accent);">#</th>
-                    <th style="padding:0.35rem 0.5rem;text-align:left;background:var(--surface);border-bottom:2px solid var(--accent);">Azione</th>
+                    <th style="padding:0.35rem 0.5rem;text-align:left;background:var(--surface);border-bottom:2px solid var(--accent);">Action</th>
                     <th style="padding:0.35rem 0.5rem;text-align:left;background:var(--surface);border-bottom:2px solid var(--accent);">Lat</th>
                     <th style="padding:0.35rem 0.5rem;text-align:left;background:var(--surface);border-bottom:2px solid var(--accent);">Lon</th>
-                    <th style="padding:0.35rem 0.5rem;text-align:left;background:var(--surface);border-bottom:2px solid var(--accent);">Quota (m)</th>
-                    <th style="padding:0.35rem 0.5rem;text-align:left;background:var(--surface);border-bottom:2px solid var(--accent);">Vel (cm/s)</th>
+                    <th style="padding:0.35rem 0.5rem;text-align:left;background:var(--surface);border-bottom:2px solid var(--accent);">Alt (m)</th>
+                    <th style="padding:0.35rem 0.5rem;text-align:left;background:var(--surface);border-bottom:2px solid var(--accent);">Speed (cm/s)</th>
                     <th style="padding:0.35rem 0.5rem;text-align:left;background:var(--surface);border-bottom:2px solid var(--accent);"></th>
                 </tr></thead>
                 <tbody id="wpBody"></tbody>
@@ -237,7 +237,7 @@ function setStatus(msg, isErr) {
 }
 
 async function loadTrack() {
-    if (!selectedFilename) { setStatus('Seleziona un volo per iniziare.'); return; }
+    if (!selectedFilename) { setStatus('Select a flight to start.'); return; }
     try {
         const r = await fetch('/flight/api/mission/track', {
             method: 'POST',
@@ -245,14 +245,14 @@ async function loadTrack() {
             body: JSON.stringify({filename: selectedFilename})
         });
         const d = await r.json();
-        if (!r.ok) { setStatus(d.error || 'Errore caricamento traccia.', true); return; }
+        if (!r.ok) { setStatus(d.error || 'Error loading track.', true); return; }
         coords = d.coords;
-        if (!coords.length) { setStatus('Nessun punto GPS valido in questo volo.', true); drawTrack(); return; }
+        if (!coords.length) { setStatus('No valid GPS points in this flight.', true); drawTrack(); return; }
         drawTrack();
         updateCutMarkers();
         refresh();
     } catch (e) {
-        setStatus('Errore: ' + e.message, true);
+        setStatus('Error: ' + e.message, true);
     }
 }
 
@@ -265,9 +265,9 @@ function drawTrack() {
     map.fitBounds(trackLayer.getBounds().pad(0.06));
     const alts = coords.map(c => c[2]);
     const km = trackLenM(coords) / 1000;
-    el('trackInfo').textContent = 'Punti: ' + coords.length +
-        ' · Distanza: ' + km.toFixed(2) + ' km' +
-        ' · Quota: ' + Math.min.apply(null, alts).toFixed(0) + ' / ' + Math.max.apply(null, alts).toFixed(0) + ' m';
+    el('trackInfo').textContent = 'Points: ' + coords.length +
+        ' · Distance: ' + km.toFixed(2) + ' km' +
+        ' · Alt: ' + Math.min.apply(null, alts).toFixed(0) + ' / ' + Math.max.apply(null, alts).toFixed(0) + ' m';
 }
 
 // ---- Cut helpers ----
@@ -357,9 +357,9 @@ function deleteWp(i) {
 }
 function wpPopupHtml(w) {
     return '<div class="wp-popup">' +
-        '<div><label>Quota (m)</label><input class="pp-alt" type="number" step="1" value="' + w.alt + '"></div>' +
-        '<div><label>Vel (cm/s)</label><input class="pp-spd" type="number" step="50" value="' + w.p1 + '"></div>' +
-        '<button class="pp-del btn-danger btn-sm" type="button">✕ Elimina</button>' +
+        '<div><label>Altitude (m)</label><input class="pp-alt" type="number" step="1" value="' + w.alt + '"></div>' +
+        '<div><label>Speed (cm/s)</label><input class="pp-spd" type="number" step="50" value="' + w.p1 + '"></div>' +
+        '<button class="pp-del btn-danger btn-sm" type="button">✕ Delete</button>' +
         '</div>';
 }
 function openWpPopup(marker, i) {
@@ -499,19 +499,19 @@ async function doPreview() {
             body: JSON.stringify(buildBody(false))
         });
         const d = await r.json();
-        if (!r.ok) { setStatus(d.error || 'Errore anteprima.', true); return; }
+        if (!r.ok) { setStatus(d.error || 'Preview error.', true); return; }
         waypoints = d.waypoints;
         renderWpMarkers();
         renderTable();
         el('xmlPreview').textContent = d.xml;
-        setStatus('Waypoint: ' + waypoints.length + ' — missione valida.', false);
+        setStatus('Waypoints: ' + waypoints.length + ' — valid mission.', false);
     } catch (e) {
-        setStatus('Errore: ' + e.message, true);
+        setStatus('Error: ' + e.message, true);
     }
 }
 
 el('exportBtn').addEventListener('click', async () => {
-    if (!selectedFilename && !dirty) { setStatus('Seleziona prima un volo.', true); return; }
+    if (!selectedFilename && !dirty) { setStatus('Select a flight first.', true); return; }
     const btn = el('exportBtn');
     btn.disabled = true;
     try {
@@ -522,7 +522,7 @@ el('exportBtn').addEventListener('click', async () => {
         });
         if (!r.ok) {
             const d = await r.json().catch(() => ({}));
-            setStatus(d.error || 'Errore esportazione.', true);
+            setStatus(d.error || 'Export error.', true);
             return;
         }
         const blob = await r.blob();
@@ -534,9 +534,9 @@ el('exportBtn').addEventListener('click', async () => {
         a.click();
         a.remove();
         URL.revokeObjectURL(url);
-        setStatus('Missione esportata.', false);
+        setStatus('Mission exported.', false);
     } catch (e) {
-        setStatus('Errore: ' + e.message, true);
+        setStatus('Error: ' + e.message, true);
     } finally {
         btn.disabled = false;
     }
@@ -566,10 +566,10 @@ el('resetBtn').addEventListener('click', () => {
 el('scratchBtn').addEventListener('click', startScratch);
 el('undoBtn').addEventListener('click', undo);
 el('deleteLastBtn').addEventListener('click', () => {
-    if (!waypoints.length) { setStatus('Nessun waypoint da cancellare.', true); return; }
+    if (!waypoints.length) { setStatus('No waypoints to delete.', true); return; }
     let idx = waypoints.length - 1;
     if (waypoints[idx].action !== 'WAYPOINT') idx--;
-    if (idx < 0) { setStatus('Nessun waypoint da cancellare.', true); return; }
+    if (idx < 0) { setStatus('No waypoints to delete.', true); return; }
     pushHistory();
     waypoints.splice(idx, 1);
     dirty = true;
@@ -624,7 +624,7 @@ resetControls();
 if (initialFilename) {
     loadTrack();
 } else {
-    setStatus('Seleziona un volo dalla lista per iniziare.');
+    setStatus('Select a flight from the list to start.');
 }
 </script>
 {% endblock %}

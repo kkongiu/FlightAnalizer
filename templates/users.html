@@ -115,6 +115,26 @@
   </div>
 </div>
 
+<!-- Delete User Confirmation Modal -->
+<div id="delModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;backdrop-filter:blur(4px);">
+  <div style="background:var(--surface);border-radius:var(--radius);padding:1.25rem;width:420px;max-width:92vw;box-shadow:var(--shadow-lg);">
+    <h3 style="font-size:1rem;font-weight:600;margin-bottom:1rem;color:#ef4444;">Delete user — double confirmation</h3>
+    <div id="delSummary" style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.75rem;white-space:pre-wrap;"></div>
+    <div style="margin-bottom:1rem;">
+      <label style="display:block;font-size:0.7rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.3rem;">Type your password to confirm</label>
+      <input id="delPassword" type="password" required style="width:100%;padding:0.55rem 0.7rem;border:1px solid rgba(239,68,68,0.4);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:0.85rem;">
+      <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.8rem;color:var(--text-secondary);margin-top:0.6rem;">
+        <input type="checkbox" id="delBackup" checked> Create a database backup first
+      </label>
+    </div>
+    <div id="delError" style="color:#ef4444;font-size:0.8rem;margin-bottom:0.6rem;display:none;"></div>
+    <div style="display:flex;justify-content:flex-end;gap:0.5rem;">
+      <button type="button" id="delCancel" class="btn-primary" style="background:var(--bg);color:var(--text);box-shadow:none;border:1px solid rgba(128,128,128,0.2);">Cancel</button>
+      <button type="button" id="delConfirm" class="btn-danger">Delete permanently</button>
+    </div>
+  </div>
+</div>
+
 <script>
 function showModal(id) {
   document.getElementById(id).style.display = 'flex';
@@ -209,6 +229,7 @@ document.getElementById('pwdForm').addEventListener('submit', async (e) => {
   else { const d = await r.json(); alert(d.error || 'Error'); }
 });
 
+let delTarget = null;
 document.querySelectorAll('.deleteUserBtn').forEach(btn => {
   btn.addEventListener('click', async () => {
     const tr = btn.closest('tr');
@@ -217,28 +238,49 @@ document.querySelectorAll('.deleteUserBtn').forEach(btn => {
     const data = await first.json().catch(() => ({}));
     if (first.status === 409 && data.confirm && data.counts) {
       const c = data.counts;
-      const keepBackup = confirm(
-        'Delete user "' + name + '"?\n\n' +
+      delTarget = {id: tr.dataset.id, name};
+      document.getElementById('delSummary').textContent =
+        'Delete user "' + name + '"?\n' +
         'This will permanently remove:\n' +
         '  - ' + c.flights + ' flights\n' +
         '  - ' + c.vehicles + ' vehicles\n' +
         '  - ' + c.tags + ' tags\n\n' +
-        'Create a database backup first?'
-      );
-      if (keepBackup === null) return;
-      const r = await fetch('/flight/api/users/' + tr.dataset.id, {
-        method: 'DELETE',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({confirm: true, backup: keepBackup})
-      });
-      if (r.ok) { tr.remove(); alert('User deleted'); }
-      else { const d = await r.json(); alert(d.error || 'Error'); }
+        'This cannot be undone.';
+      document.getElementById('delPassword').value = '';
+      document.getElementById('delError').style.display = 'none';
+      showModal('delModal');
+      document.getElementById('delPassword').focus();
     } else if (first.ok) {
       tr.remove();
     } else {
       alert(data.error || 'Error');
     }
   });
+});
+
+document.getElementById('delCancel').addEventListener('click', () => hideModal('delModal'));
+document.getElementById('delConfirm').addEventListener('click', async () => {
+  const err = document.getElementById('delError');
+  err.style.display = 'none';
+  const password = document.getElementById('delPassword').value;
+  if (!password) { err.textContent = 'Please enter your password.'; err.style.display = 'block'; return; }
+  const backup = document.getElementById('delBackup').checked;
+  const r = await fetch('/flight/api/users/' + delTarget.id, {
+    method: 'DELETE',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({confirm: true, backup: backup, password: password})
+  });
+  if (r.ok) {
+    hideModal('delModal');
+    document.querySelectorAll('.deleteUserBtn').forEach(b => {
+      if (b.closest('tr').dataset.id === delTarget.id) b.closest('tr').remove();
+    });
+    alert('User deleted');
+  } else {
+    const d = await r.json().catch(() => ({}));
+    err.textContent = d.error || 'Error';
+    err.style.display = 'block';
+  }
 });
 
 document.querySelectorAll('.resetLinkBtn').forEach(btn => {
