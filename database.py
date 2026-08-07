@@ -175,6 +175,34 @@ def _migrate_009_sharing(conn: sqlite3.Connection):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_shares_flight ON shares(flight_filename)")
 
 
+def _migrate_010_f8_domain(conn: sqlite3.Connection):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS maintenance_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            vehicle_id INTEGER NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+            part_name TEXT NOT NULL,
+            interval_hours REAL NOT NULL DEFAULT 0,
+            last_service_hours REAL NOT NULL DEFAULT 0,
+            notes TEXT DEFAULT ''
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_maint_vehicle ON maintenance_items(vehicle_id)")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS api_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            token_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            last_used_at TEXT,
+            revoked INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tokens_user ON api_tokens(user_id)")
+    if not _column_exists(conn, "flights", "weather"):
+        conn.execute("ALTER TABLE flights ADD COLUMN weather TEXT")
+
+
 MIGRATIONS = [
     (2, "flights_owner_id", _migrate_002_flights_owner_id),
     (3, "vehicles_owner_id", _migrate_003_vehicles_owner_id),
@@ -184,6 +212,7 @@ MIGRATIONS = [
     (7, "messages", _migrate_007_messages),
     (8, "flight_photos", _migrate_008_flight_photos),
     (9, "sharing", _migrate_009_sharing),
+    (10, "f8_domain", _migrate_010_f8_domain),
 ]
 
 
@@ -1037,6 +1066,7 @@ def delete_user_cascade(user_id: int) -> dict:
             (user_id,)).fetchall()]
         conn.execute("DELETE FROM flight_photos WHERE owner_id = ?", (user_id,))
         conn.execute("DELETE FROM flights WHERE owner_id = ?", (user_id,))
+        conn.execute("DELETE FROM api_tokens WHERE user_id = ?", (user_id,))
         # Shares: cascade deletes comments/likes via FK; remove shares for owned flights.
         if flight_files:
             marks = ",".join("?" for _ in flight_files)
@@ -1556,6 +1586,192 @@ def delete_comments_likes_for_share(share_id: int) -> None:
     with _get_conn() as conn:
         conn.execute("DELETE FROM comments WHERE share_id = ?", (share_id,))
         conn.execute("DELETE FROM likes WHERE share_id = ?", (share_id,))
+
+
+# --- Maintenance (F8 #41) ---
+
+
+def get_vehicle_flight_hours(vehicle_id: int) -> float:
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(duration_s), 0) / 3600.0 FROM flights "
+            "WHERE vehicle_id = ?", (vehicle_id,)).fetchone()
+    return round(row[0] or 0, 3)
+
+
+def get_maintenance_items(vehicle_id: int) -> list[dict]:
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM maintenance_items WHERE vehicle_id = ? ORDER BY id ASC",
+            (vehicle_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def add_maintenance_item(vehicle_id: int, part_name: str, interval_hours: float,
+                         notes: str = "") -> dict | None:
+    with _get_conn() as conn:
+        try:
+            cur = conn.execute(
+                "INSERT INTO maintenance_items (vehicle_id, part_name, interval_hours, notes) "
+                "VALUES (?, ?, ?, ?)", (vehicle_id, part_name, interval_hours, notes))
+            item_id = int(cur.lastrowid)
+        except sqlite3.IntegrityError:
+            return None
+    return get_maintenance_item(item_id)
+
+
+def get_maintenance_item(item_id: int) -> dict | None:
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM maintenance_items WHERE id = ?", (item_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def update_maintenance_item(item_id: int, part_name: str, interval_hours: float,
+                            notes: str, last_service_hours: float) -> bool:
+    with _get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE maintenance_items SET part_name = ?, interval_hours = ?, "
+            "notes = ?, last_service_hours = ? WHERE id = ?",
+            (part_name, interval_hours, notes, last_service_hours, item_id))
+        return cur.rowcount > 0
+
+
+def reset_maintenance_item_service(item_id: int, flight_hours: float) -> bool:
+    with _get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE maintenance_items SET last_service_hours = ? WHERE id = ?",
+            (flight_hours, item_id))
+        return cur.rowcount > 0
+
+
+def delete_maintenance_item(item_id: int) -> bool:
+    with _get_conn() as conn:
+        cur = conn.execute("DELETE FROM maintenance_items WHERE id = ?", (item_id,))
+        return cur.rowcount > 0
+
+
+def delete_maintenance_for_vehicles(vehicle_ids: list[int]) -> None:
+    if not vehicle_ids:
+        return
+    marks = ",".join("?" for _ in vehicle_ids)
+    with _get_conn() as conn:
+        conn.execute(f"DELETE FROM maintenance_items WHERE vehicle_id IN ({marks})",
+                     vehicle_ids)
+
+
+def get_maintenance_alerts(owner_id: int | None = None, is_admin: bool = False) -> list[dict]:
+    """Return vehicles with overdue/near-due maintenance, each with flight hours
+    and a per-item status."""
+    vehicles = get_vehicles(owner_id, is_admin)
+    alerts = []
+    for v in vehicles:
+        hours = get_vehicle_flight_hours(v.id)
+        items = get_maintenance_items(v.id)
+        if not items:
+            continue
+        due = []
+        for it in items:
+            used = hours - it["last_service_hours"]
+            remaining = it["interval_hours"] - used
+            status = "ok"
+            if it["interval_hours"] <= 0:
+                remaining = None
+                status = "unknown"
+            elif remaining <= 0:
+                status = "overdue"
+            elif remaining <= 2:
+                status = "due"
+            due.append({**it, "used_hours": round(used, 2),
+                        "remaining_hours": round(remaining, 2) if remaining is not None else None,
+                        "status": status})
+        alerts.append({
+            "vehicle_id": v.id, "vehicle_name": v.name,
+            "flight_hours": hours,
+            "items": due,
+            "overdue": sum(1 for i in due if i["status"] == "overdue"),
+            "due": sum(1 for i in due if i["status"] == "due"),
+        })
+    return sorted(alerts, key=lambda a: (-a["overdue"], -a["due"], a["vehicle_name"]))
+
+
+# --- API tokens (F8 #43) ---
+
+
+def create_api_token(user_id: int, name: str) -> str | None:
+    raw = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(raw.encode()).hexdigest()
+    with _get_conn() as conn:
+        try:
+            conn.execute(
+                "INSERT INTO api_tokens (user_id, name, token_hash) VALUES (?, ?, ?)",
+                (user_id, name, token_hash))
+        except sqlite3.IntegrityError:
+            return None
+    return raw
+
+
+def _token_hash_of(raw: str) -> str:
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def get_api_tokens(user_id: int) -> list[dict]:
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, name, created_at, last_used_at, revoked FROM api_tokens "
+            "WHERE user_id = ? ORDER BY id DESC", (user_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def api_token_user(raw_token: str) -> int | None:
+    if not raw_token:
+        return None
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, user_id, revoked FROM api_tokens WHERE token_hash = ?",
+            (_token_hash_of(raw_token),)).fetchone()
+    if not row or row["revoked"]:
+        return None
+    with _get_conn() as conn:
+        conn.execute(
+            "UPDATE api_tokens SET last_used_at = datetime('now') WHERE id = ?",
+            (row["id"],))
+    return row["user_id"]
+
+
+def revoke_api_token(user_id: int, token_id: int) -> bool:
+    with _get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE api_tokens SET revoked = 1 WHERE id = ? AND user_id = ?",
+            (token_id, user_id))
+        return cur.rowcount > 0
+
+
+def delete_api_tokens_for_user(user_id: int) -> None:
+    with _get_conn() as conn:
+        conn.execute("DELETE FROM api_tokens WHERE user_id = ?", (user_id,))
+
+
+# --- Weather (F8 #44) ---
+
+
+def get_flight_weather(filename: str) -> dict | None:
+    with _get_conn() as conn:
+        row = conn.execute("SELECT weather FROM flights WHERE filename = ?",
+                           (filename,)).fetchone()
+    if row and row[0]:
+        try:
+            return json.loads(row[0])
+        except (ValueError, TypeError):
+            return None
+    return None
+
+
+def set_flight_weather(filename: str, weather: dict) -> bool:
+    with _get_conn() as conn:
+        cur = conn.execute("UPDATE flights SET weather = ? WHERE filename = ?",
+                           (json.dumps(weather), filename))
+        return cur.rowcount > 0
 
 
 init_db()

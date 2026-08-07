@@ -5,7 +5,7 @@ la fase di implementazione e la lista è in ordine di esecuzione: ogni fase va
 completata prima di passare alla successiva.
 
 Ogni voce corrisponde a un'issue GitHub: il numero `[#N]` è il riferimento.
-Stato: **F0–F6 completate** (F2 include registrazione con conferma via email e consenso privacy; F4 include export dati, cancellazione self-service e audit log; F5 include messaggistica privata con badge non letti, notifiche email e allegato volo; F6 include galleria foto per volo con copertina; F7 include link pubblici con pagine condivisibili, social, og:image, GPX pubblico, commenti/like). F8 pending.
+Stato: **F0–F8 completate** (F2 include registrazione con conferma via email e consenso privacy; F4 include export dati, cancellazione self-service e audit log; F5 include messaggistica privata con badge non letti, notifiche email e allegato volo; F6 include galleria foto per volo con copertina; F7 include link pubblici con pagine condivisibili, social, og:image, GPX pubblico, commenti/like; F8 include manutenzione veicoli con ore volo/scadenze/avvisi, export CSV aggregato e calendario/timeline, API token per upload esterno, meteo storico). Extra F7 opzionali ancora aperti (gruppi/team, amici/feed).
 
 ---
 
@@ -76,10 +76,10 @@ Stato: **F0–F6 completate** (F2 include registrazione con conferma via email e
 
 ## F8 · Dominio e integrazione
 
-- [ ] `[F8][DOMINIO]` Manutenzione programmata: ore di volo per veicolo, scadenze parti/richiami, avvisi — [#41](https://github.com/kkongiu/FlightAnalizer/issues/41)
-- [ ] `[F8][DOMINIO]` Export Excel/CSV dei dati aggregati e calendario/timeline dei voli — [#42](https://github.com/kkongiu/FlightAnalizer/issues/42)
-- [ ] `[F8][INTEGRAZIONE]` API token per upload da script/app radio esterno (auto-upload) — [#43](https://github.com/kkongiu/FlightAnalizer/issues/43)
-- [ ] `[F8][DOMINIO]` Meteo associato al volo (vento/temperatura storica del giorno del volo) — [#44](https://github.com/kkongiu/FlightAnalizer/issues/44)
+- [x] `[F8][DOMINIO]` Manutenzione programmata: ore di volo per veicolo, scadenze parti/richiami, avvisi — [#41](https://github.com/kkongiu/FlightAnalizer/issues/41)
+- [x] `[F8][DOMINIO]` Export Excel/CSV dei dati aggregati e calendario/timeline dei voli — [#42](https://github.com/kkongiu/FlightAnalizer/issues/42)
+- [x] `[F8][INTEGRAZIONE]` API token per upload da script/app radio esterno (auto-upload) — [#43](https://github.com/kkongiu/FlightAnalizer/issues/43)
+- [x] `[F8][DOMINIO]` Meteo associato al volo (vento/temperatura storica del giorno del volo) — [#44](https://github.com/kkongiu/FlightAnalizer/issues/44)
 
 ## Help & guida (trasversale)
 

@@ -48,6 +48,17 @@
             <div class="ok" id="exportOk" style="color:#16a34a;font-size:0.85rem;margin-top:0.5rem;"></div>
         </div>
 
+        <div class="record-card">
+            <h3 style="font-size:0.95rem;font-weight:600;color:var(--text);margin-bottom:1rem;">Upload API Tokens</h3>
+            <p style="font-size:0.85rem;color:var(--text-muted,#666);margin-bottom:0.75rem;">Tokens let an external script or radio app upload logs without a session: <code style="background:var(--bg);padding:0.1rem 0.3rem;border-radius:4px;">curl -H "X-API-Token: TOKEN" -F "file=@log.csv" {{ request.url.scheme }}://{{ request.url.netloc }}/flight/api/upload</code></p>
+            <div id="tokenList" style="font-size:0.85rem;margin-bottom:0.75rem;"></div>
+            <div style="display:flex;gap:0.5rem;">
+                <input type="text" id="tokenName" placeholder="Token name (e.g. radio-upload)" style="flex:1;padding:0.6rem;border:1px solid var(--border,#ddd);border-radius:6px;">
+                <button id="createTokenBtn" class="btn-primary">Create token</button>
+            </div>
+            <div class="ok" id="tokenOk" style="color:#16a34a;font-size:0.85rem;margin-top:0.5rem;"></div>
+        </div>
+
         <div class="record-card" style="border-color:#ef4444;">
             <h3 style="font-size:0.95rem;font-weight:600;color:#ef4444;margin-bottom:1rem;">Delete Account</h3>
             <p style="font-size:0.85rem;color:var(--text-muted,#666);margin-bottom:0.75rem;">Permanently delete your account and all associated flights, vehicles and files. This cannot be undone.</p>
@@ -187,6 +198,48 @@
             err.textContent = data.error || 'Delete failed';
         }
     });
+
+    // --- Upload API tokens (F8 #43) ---
+    const tokenList = document.getElementById('tokenList');
+    const tokenOk = document.getElementById('tokenOk');
+    async function loadTokens() {
+        tokenList.innerHTML = '';
+        const res = await fetch('/flight/api/tokens');
+        if (!res.ok) return;
+        const tokens = (await res.json()).tokens || [];
+        if (!tokens.length) { tokenList.textContent = 'No tokens yet.'; return; }
+        tokenList.innerHTML = tokens.map(t =>
+            '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.3rem 0;border-bottom:1px solid rgba(128,128,128,0.15);">' +
+            '<span style="flex:1;"><strong>' + t.name.replace(/[<>&]/g,'') + '</strong>' +
+            (t.revoked ? ' <span style="color:#ef4444;">(revoked)</span>' : '') +
+            '<span style="color:var(--text-muted);margin-left:0.5rem;">created ' + t.created_at + '</span></span>' +
+            (t.revoked ? '' : '<button class="btn-danger" data-token="' + t.id + '" style="font-size:0.75rem;padding:0.15rem 0.5rem;">Revoke</button>') +
+            '</div>').join('');
+        tokenList.querySelectorAll('button[data-token]').forEach(b =>
+            b.addEventListener('click', async () => {
+                await fetch('/flight/api/tokens/' + b.dataset.token, {method: 'DELETE'});
+                loadTokens();
+            }));
+    }
+    document.getElementById('createTokenBtn').addEventListener('click', async () => {
+        tokenOk.textContent = '';
+        const name = document.getElementById('tokenName').value.trim();
+        const res = await fetch('/flight/api/tokens', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({name: name || 'auto-upload'})
+        });
+        if (res.ok) {
+            const d = await res.json();
+            tokenOk.textContent = 'Token: ' + d.token + '   (store it now — it will not be shown again)';
+            tokenOk.style.whiteSpace = 'pre-wrap';
+            document.getElementById('tokenName').value = '';
+            loadTokens();
+        } else {
+            const b = await res.json().catch(() => ({}));
+            tokenOk.textContent = b.error || 'Failed to create token';
+        }
+    });
+    loadTokens();
 })();
 </script>
 {% endblock %}

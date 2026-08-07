@@ -372,10 +372,21 @@ All API routes are prefixed with `/api/` and require authentication.
 | `PUT` | `/api/vehicles/{id}` | Update vehicle |
 | `DELETE` | `/api/vehicles/{id}` | Delete vehicle |
 | `POST` | `/api/scan` | Scan for unimported CSV files |
-| `POST` | `/api/upload` | Upload a CSV file |
+| `POST` | `/api/upload` | Upload a CSV file (session or `X-API-Token`) |
 | `POST` | `/api/reprocess` | Re-analyze all flights from CSV |
 | `GET` | `/api/export/{filename}` | Export as GPX or KML |
+| `GET` | `/api/export/flights.csv` | Export aggregated flight data as CSV |
 | `GET` | `/api/battery-health` | Battery voltage trends |
+| `GET` | `/api/vehicles/{id}/maintenance` | Maintenance items + flight hours (owner/admin) |
+| `POST` | `/api/vehicles/{id}/maintenance` | Add a maintenance item |
+| `PUT` | `/api/maintenance/{item_id}` | Update a maintenance item |
+| `POST` | `/api/maintenance/{item_id}/service` | Mark a maintenance item as serviced |
+| `DELETE` | `/api/maintenance/{item_id}` | Remove a maintenance item |
+| `GET` | `/api/maintenance/alerts` | Vehicles with overdue/near-due maintenance |
+| `GET` | `/api/tokens` | List upload API tokens |
+| `POST` | `/api/tokens` | Create an upload API token |
+| `DELETE` | `/api/tokens/{id}` | Revoke an upload API token |
+| `GET` | `/api/flights/{filename}/weather` | Historical weather for a flight (Open-Meteo) |
 | `GET` | `/api/users` | List users (admin only) |
 | `POST` | `/api/users` | Create user (admin only) |
 | `PUT` | `/api/users/{id}` | Update user (admin only) |
@@ -453,11 +464,10 @@ Done so far:
 - [x] **F5 · Messaggi e notifiche** — private messaging with conversations and unread badge, email notifications, flight attachment (isolation-aware), admin conversation management
 - [x] **F6 · Foto** — per-flight photo gallery (upload, lightbox, single delete), cover photos with list previews, owner/admin-only management
 - [x] **F7 · Sharing** — public share links with revoke/toggle, public view page (map/stats, no login), social share buttons, og:image preview, public GPX download, comments/likes board
+- [x] **F8 · Dominio e integrazione** — per-vehicle flight-hours maintenance with part intervals & alerts, aggregated CSV export + calendar/timeline page, upload API tokens for external scripts (auto-upload), historical weather on the flight page
 
-Next (by phase):
-
-- **F8 · Dominio** — maintenance reminders, Excel/CSV export, API upload tokens, flight weather
-  (partial F7 extras still open: team groups, friend-style contacts/feed)
+Still open (from roadmap extras/ideas): team groups, friend-style contacts/feed,
+Excel export, Docker image, i18n, PDF report enhancements.
 
 Other ideas from the original roadmap are still on the list: battery cell-level analysis,
 PDF report export, drone model auto-detection, Betaflight / ArduPilot log support,

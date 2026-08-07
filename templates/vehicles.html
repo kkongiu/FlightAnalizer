@@ -5,9 +5,15 @@
     <div class="header-bar">
         <h2>Vehicles</h2>
         <div class="header-actions">
+            <button id="maintAlertsBtn" class="btn-primary" style="background:var(--bg);color:var(--text);box-shadow:none;border:1px solid rgba(128,128,128,0.2);">⚠️ Maintenance</button>
             <button id="addVehicleBtn" class="btn-primary">+ Add Vehicle</button>
             <button id="applyDefaultBtn" class="btn-primary" style="background:var(--bg);color:var(--text);box-shadow:none;border:1px solid rgba(128,128,128,0.2);">Apply Default to All</button>
         </div>
+    </div>
+
+    <div id="maintAlertsBox" class="card" style="padding:0.75rem;margin-bottom:1rem;display:none;">
+        <h4 style="font-size:0.8rem;font-weight:700;margin-bottom:0.5rem;">⚠️ Maintenance alerts</h4>
+        <div id="maintAlertsList" style="font-size:0.8rem;"></div>
     </div>
 
     {% if not vehicles %}
@@ -44,6 +50,7 @@
             </div>
             <div style="display:flex;gap:0.4rem;">
                 <button class="btn-primary btn-sm edit-vehicle-btn" style="flex:1;">Edit</button>
+                <button class="btn-primary btn-sm maint-btn" data-id="{{ v.id }}" style="flex:1;">Maint</button>
                 <button class="btn-danger btn-sm delete-vehicle-btn" style="flex:1;">Delete</button>
                 <input type="file" accept="image/jpeg,image/png,image/webp" class="photo-input" style="display:none" data-id="{{ v.id }}">
                 <button class="btn-primary btn-sm photo-btn" data-id="{{ v.id }}" title="Upload photo">📷</button>
@@ -77,6 +84,22 @@
             <button id="modalSaveBtn" class="btn-primary">Save</button>
         </div>
         <input type="hidden" id="vehicleEditId" value="">
+    </div>
+</div>
+
+<div id="maintModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1001;align-items:center;justify-content:center;backdrop-filter:blur(4px);">
+    <div style="background:var(--surface);border-radius:var(--radius);padding:1.5rem;width:520px;max-width:92vw;box-shadow:var(--shadow-lg);">
+        <h3 style="font-size:1rem;font-weight:600;margin-bottom:0.25rem;color:var(--text);">Maintenance <span id="maintVehicleName"></span></h3>
+        <p style="font-size:0.75rem;color:var(--text-secondary);margin-bottom:1rem;">Total flight hours: <strong id="maintFlightHours">0</strong> h</p>
+        <div id="maintItems" style="max-height:300px;overflow-y:auto;font-size:0.8rem;margin-bottom:1rem;"></div>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
+            <input id="maintPart" placeholder="Part name (e.g. propellers)" style="flex:2;min-width:140px;padding:0.5rem 0.7rem;border:1px solid rgba(128,128,128,0.2);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:0.85rem;">
+            <input id="maintInterval" type="number" min="0" step="0.5" placeholder="Interval (h)" style="flex:1;min-width:90px;padding:0.5rem 0.7rem;border:1px solid rgba(128,128,128,0.2);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:0.85rem;">
+            <button id="maintAddBtn" class="btn-primary" style="font-size:0.8rem;padding:0.5rem 0.9rem;">Add item</button>
+        </div>
+        <div style="display:flex;justify-content:flex-end;margin-top:1rem;">
+            <button id="maintCloseBtn" class="btn-primary" style="background:var(--bg);color:var(--text);box-shadow:none;">Close</button>
+        </div>
     </div>
 </div>
 
@@ -185,5 +208,98 @@ document.querySelectorAll('.photo-input').forEach(input => {
         } catch(e) { alert('Error: ' + e.message); }
     });
 });
+
+// --- Maintenance (F8 #41) ---
+const maintModal = document.getElementById('maintModal');
+let maintVehicleId = null;
+let maintVehicleName = '';
+
+function openMaint(vid, name) {
+    maintVehicleId = vid;
+    maintVehicleName = name;
+    document.getElementById('maintVehicleName').textContent = '· ' + name;
+    maintModal.style.display = 'flex';
+    loadMaint();
+}
+
+async function loadMaint() {
+    try {
+        const res = await fetch('/flight/api/vehicles/' + maintVehicleId + '/maintenance');
+        if (!res.ok) return;
+        const data = await res.json();
+        document.getElementById('maintFlightHours').textContent = data.flight_hours;
+        const box = document.getElementById('maintItems');
+        const items = data.items || [];
+        if (!items.length) { box.innerHTML = '<p style="color:var(--text-muted);">No maintenance items yet. Add propellers, batteries, motors…</p>'; return; }
+        box.innerHTML = items.map(it => {
+            const remaining = it.interval_hours - (data.flight_hours - it.last_service_hours);
+            const status = it.interval_hours <= 0 ? 'unknown' : (remaining <= 0 ? 'overdue' : (remaining <= 2 ? 'due' : 'ok'));
+            const color = status === 'overdue' ? '#ef4444' : (status === 'due' ? '#f59e0b' : '#22c55e');
+            return '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0;border-bottom:1px solid rgba(128,128,128,0.1);">' +
+                '<span style="width:8px;height:8px;border-radius:50%;background:' + color + ';flex-shrink:0;"></span>' +
+                '<div style="flex:1;"><strong>' + it.part_name + '</strong> · interval ' + it.interval_hours + ' h · last service ' + it.last_service_hours + ' h</div>' +
+                (status === 'unknown' ? '' : '<span style="font-size:0.7rem;color:' + color + ';font-weight:600;">' + (status === 'overdue' ? 'OVERDUE' : (status === 'due' ? 'DUE' : 'OK')) + '</span>') +
+                '<button class="btn-primary" data-m="service" data-id="' + it.id + '" style="font-size:0.7rem;padding:0.15rem 0.5rem;">Service now</button>' +
+                '<button class="btn-danger" data-m="del" data-id="' + it.id + '" style="font-size:0.7rem;padding:0.15rem 0.5rem;">×</button>' +
+                '</div>';
+        }).join('');
+        box.querySelectorAll('button[data-m]').forEach(b => b.addEventListener('click', () => maintAction(b)));
+    } catch(e) {}
+}
+
+async function maintAction(btn) {
+    const id = btn.dataset.id;
+    const act = btn.dataset.m;
+    const url = '/flight/api/maintenance/' + id + (act === 'service' ? '/service' : '');
+    const res = await fetch(url, { method: act === 'service' ? 'POST' : 'DELETE' });
+    if (res.ok) { loadMaint(); if (act === 'service') loadAlerts(); }
+}
+
+document.querySelectorAll('.maint-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const card = btn.closest('.vehicle-card');
+        openMaint(card.dataset.id, card.dataset.name);
+    });
+});
+
+document.getElementById('maintAddBtn').addEventListener('click', async () => {
+    const part = document.getElementById('maintPart').value.trim();
+    if (!part) return;
+    const interval = parseFloat(document.getElementById('maintInterval').value) || 0;
+    const res = await fetch('/flight/api/vehicles/' + maintVehicleId + '/maintenance', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({part_name: part, interval_hours: interval})
+    });
+    if (res.ok) {
+        document.getElementById('maintPart').value = '';
+        document.getElementById('maintInterval').value = '';
+        loadMaint(); loadAlerts();
+    }
+});
+
+document.getElementById('maintCloseBtn').addEventListener('click', () => { maintModal.style.display = 'none'; });
+maintModal.addEventListener('click', (e) => { if (e.target === maintModal) maintModal.style.display = 'none'; });
+
+// Maintenance alerts banner
+const alertsBox = document.getElementById('maintAlertsBox');
+async function loadAlerts() {
+    try {
+        const res = await fetch('/flight/api/maintenance/alerts');
+        if (!res.ok) return;
+        const alerts = (await res.json()).alerts || [];
+        const active = alerts.filter(a => a.overdue || a.due);
+        if (!active.length) { alertsBox.style.display = 'none'; return; }
+        alertsBox.style.display = 'block';
+        document.getElementById('maintAlertsList').innerHTML = active.map(a => {
+            const labels = a.items.filter(i => i.status !== 'ok').map(i => {
+                const c = i.status === 'overdue' ? '#ef4444' : '#f59e0b';
+                return '<span style="color:' + c + ';font-weight:600;">' + i.part_name + '</span>';
+            });
+            return '<div style="margin-bottom:0.3rem;">🚁 <strong>' + a.vehicle_name + '</strong> (' + a.flight_hours + ' h): ' + labels.join(', ') + '</div>';
+        }).join('');
+    } catch(e) {}
+}
+document.getElementById('maintAlertsBtn').addEventListener('click', () => loadAlerts());
+loadAlerts();
 </script>
 {% endblock %}

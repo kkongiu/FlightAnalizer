@@ -32,9 +32,15 @@
             <label class="btn-primary" for="gpxFileInput" style="font-size:0.7rem;padding:0.25rem 0.6rem;cursor:pointer;" id="importGpxLabel">Import GPX</label>
             <input type="file" id="gpxFileInput" accept=".gpx" style="display:none;">
             <button class="btn-primary" id="rescanNavBtn" style="font-size:0.7rem;padding:0.25rem 0.6rem;">Rescan Nav</button>
+            <button class="btn-primary" id="weatherBtn" style="font-size:0.7rem;padding:0.25rem 0.6rem;">☀️ Weather</button>
             <button class="btn-primary" id="shareBtn" style="font-size:0.7rem;padding:0.25rem 0.6rem;">🔗 Share</button>
             <button class="btn-danger" id="deleteBtn" style="font-size:0.7rem;padding:0.25rem 0.6rem;">Delete</button>
         </div>
+    </div>
+
+    <div id="weatherPanel" class="card" style="display:none;padding:0.75rem;margin-bottom:0.75rem;">
+        <h4 style="font-size:0.8rem;font-weight:700;margin-bottom:0.5rem;">☀️ Historical weather</h4>
+        <div id="weatherContent" style="font-size:0.8rem;"></div>
     </div>
 
     <div id="sharePanel" class="card" style="display:none;padding:0.75rem;margin-bottom:0.75rem;">
@@ -1485,6 +1491,24 @@ updateChartCursor(0);
             const res = await fetch('/flight/api/flights/' + encodeURIComponent(filename) + '/share', {method: 'POST'});
             if (res.ok) loadShares();
         }
+    });
+
+    // --- Weather (F8 #44) ---
+    const weatherPanel = document.getElementById('weatherPanel');
+    const weatherContent = document.getElementById('weatherContent');
+    document.getElementById('weatherBtn').addEventListener('click', async () => {
+        const showing = weatherPanel.style.display !== 'none';
+        weatherPanel.style.display = showing ? 'none' : 'block';
+        if (showing) return;
+        weatherContent.textContent = 'Loading…';
+        const res = await fetch('/flight/api/flights/' + encodeURIComponent(filename) + '/weather');
+        if (!res.ok) { weatherContent.textContent = 'Weather unavailable.'; return; }
+        const d = (await res.json()).weather;
+        if (!d) { weatherContent.textContent = 'No weather data available for this flight (offline or missing coordinates/date).'; return; }
+        weatherContent.innerHTML =
+            '<p><strong>Date:</strong> ' + d.date + '</p>' +
+            '<p><strong>Temp:</strong> avg ' + d.avg_temp_c + ' °C (min ' + d.min_temp_c + ' / max ' + d.max_temp_c + ')</p>' +
+            (d.avg_wind_kmh != null ? '<p><strong>Wind:</strong> avg ' + d.avg_wind_kmh + ' km/h (max ' + d.max_wind_kmh + ')</p>' : '');
     });
 })();
 </script>

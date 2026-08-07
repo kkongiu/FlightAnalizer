@@ -49,7 +49,15 @@ from database import (save_flight, get_all_flights, get_flight, delete_flight,
                       get_shares_for_flight, set_share_enabled, delete_share,
                       delete_shares_for_flights, add_comment, get_comments,
                       add_like, remove_like, get_likes,
-                      user_likes)
+                      user_likes,
+                      get_vehicle_flight_hours, get_maintenance_items,
+                      get_maintenance_item,
+                      add_maintenance_item, update_maintenance_item,
+                      reset_maintenance_item_service, delete_maintenance_item,
+                      get_maintenance_alerts,
+                      create_api_token, get_api_tokens, api_token_user,
+                      revoke_api_token,
+                      get_flight_weather, set_flight_weather)
 import httpx
 import backup
 import mailer
@@ -307,6 +315,25 @@ def require_api_auth(request: Request):
         request.session.clear()
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     return None
+
+
+def _token_auth_user(request: Request) -> dict | None:
+    """Resolve a user from an API token (X-API-Token header), else None."""
+    raw = request.headers.get("X-API-Token") or request.query_params.get("api_token")
+    if not raw:
+        return None
+    user_id = api_token_user(raw)
+    if not user_id:
+        return None
+    user = get_user_by_id(user_id)
+    if not user or user.get("status") != "active":
+        return None
+    return {
+        "user_id": user_id,
+        "username": user.get("username"),
+        "role": user.get("role"),
+        "is_admin": user.get("role") == "admin",
+    }
 
 
 def _current(request: Request) -> dict:
@@ -938,10 +965,12 @@ async def scan_logs(request: Request):
 
 @app.post("/api/upload")
 async def upload_log(request: Request, file: UploadFile = File(...)):
-    denied = require_api_auth(request)
-    if denied:
-        return denied
-    me = _current(request)
+    me = _token_auth_user(request)
+    if not me:
+        denied = require_api_auth(request)
+        if denied:
+            return denied
+        me = _current(request)
     if not file.filename or not file.filename.lower().endswith(".csv"):
         return JSONResponse({"error": "Only CSV files are supported"}, status_code=400)
     safe_name = _safe_filename(file.filename)
@@ -1371,6 +1400,62 @@ def share_public_url(token: str) -> str:
     return f"{base}/r/{token}"
 
 
+@app.get("/api/flights/{filename:path}/weather")
+async def api_flight_weather(filename: str, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    flight = get_flight(filename, me["user_id"], me["is_admin"])
+    if not flight:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    cached = get_flight_weather(filename)
+    if cached:
+        return {"weather": cached}
+    w = await _fetch_historical_weather(flight)
+    if w is None:
+        return {"weather": None}
+    set_flight_weather(filename, w)
+    return {"weather": w}
+
+
+async def _fetch_historical_weather(flight: dict) -> dict | None:
+    """Best-effort historical weather from Open-Meteo (no key) for the flight
+    start coordinates/date. Returns None on any failure (offline, bad coords)."""
+    coords = flight.get("coordinates") or []
+    if not coords:
+        return None
+    lat, lon = coords[0][0], coords[0][1]
+    date = (flight.get("date") or "")[:10]
+    if not date or not lat or not lon:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=15) as ac:
+            r = await ac.get("https://archive-api.open-meteo.com/v1/archive",
+                             params={
+                                 "latitude": lat, "longitude": lon,
+                                 "start_date": date, "end_date": date,
+                                 "hourly": "temperature_2m,wind_speed_10m",
+                                 "timezone": "UTC"})
+            r.raise_for_status()
+            data = r.json()
+            hourly = (data.get("hourly") or {})
+            temps = hourly.get("temperature_2m") or []
+            winds = hourly.get("wind_speed_10m") or []
+            if not temps:
+                return None
+            return {
+                "avg_temp_c": round(sum(temps) / len(temps), 1),
+                "min_temp_c": round(min(temps), 1),
+                "max_temp_c": round(max(temps), 1),
+                "avg_wind_kmh": round(sum(winds) / len(winds), 1) if winds else None,
+                "max_wind_kmh": round(max(winds), 1) if winds else None,
+                "date": date,
+            }
+    except Exception:
+        return None
+
+
 @app.get("/api/flights/{filename:path}")
 async def api_flight(request: Request, filename: str):
     denied = require_api_auth(request)
@@ -1432,6 +1517,34 @@ async def api_rename(request: Request, filename: str):
     if not rename_flight(filename, new_name, me["user_id"], me["is_admin"]):
         return JSONResponse({"error": "not found"}, status_code=404)
     return {"filename": new_name}
+
+
+@app.get("/api/export/flights.csv")
+async def api_export_flights_csv(request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    import csv as _csv
+    import io
+    flights = get_all_flights(me["user_id"], me["is_admin"])
+    cols = ["filename", "date", "start_time", "duration_s", "distance_km",
+            "max_alt_m", "min_alt_m", "avg_alt_m", "max_speed_kmh",
+            "avg_speed_kmh", "max_vspd_ms", "max_rssi_db", "min_rssi_db",
+            "avg_rssi_db", "min_rqly", "avg_rqly", "battery_start_v",
+            "battery_end_v", "battery_min_v", "battery_start_pct",
+            "battery_end_pct", "battery_consumed_mah", "max_current_a",
+            "txbat_v", "sats_max", "max_g", "avg_g", "home_distance_km",
+            "glide_ratio"]
+    buf = io.StringIO()
+    w = _csv.writer(buf)
+    w.writerow(cols)
+    for f in flights:
+        w.writerow([f.get(c, "") if not isinstance(f.get(c), (dict, list)) else json.dumps(f.get(c))
+                    for c in cols])
+    _audit(request, "export_csv", f"rows={len(flights)}")
+    return Response(buf.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": "attachment; filename=flights.csv"})
 
 
 @app.get("/api/export/{filename:path}")
@@ -2510,6 +2623,231 @@ def notify_new_message_notification(recipient: dict, sender: dict, text: str,
     except Exception:
         logger = logging.getLogger(__name__)
         logger.warning("failed to send message notification email", exc_info=True)
+
+
+# --- F8: Maintenance (#41) ---
+
+
+def _vehicle_owned(vehicle_id: int, me: dict) -> bool:
+    if me["is_admin"]:
+        return True
+    v = get_vehicle(vehicle_id, me["user_id"], False)
+    return v is not None
+
+
+@app.get("/api/vehicles/{vehicle_id}/maintenance")
+async def api_vehicle_maintenance(vehicle_id: int, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    if not _vehicle_owned(vehicle_id, me):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return {
+        "flight_hours": get_vehicle_flight_hours(vehicle_id),
+        "items": get_maintenance_items(vehicle_id),
+    }
+
+
+@app.post("/api/vehicles/{vehicle_id}/maintenance")
+async def api_maintenance_add(vehicle_id: int, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    if not _vehicle_owned(vehicle_id, me):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    body = await request.json()
+    part_name = str(body.get("part_name", "")).strip()
+    if not part_name:
+        return JSONResponse({"error": "part_name is required"}, status_code=400)
+    interval_hours = float(body.get("interval_hours", 0) or 0)
+    item = add_maintenance_item(vehicle_id, part_name, interval_hours,
+                                str(body.get("notes", "")))
+    _audit(request, "maintenance_add", f"vehicle={vehicle_id} part={part_name}")
+    return {"maintenance": item}
+
+
+@app.put("/api/maintenance/{item_id}")
+async def api_maintenance_update(item_id: int, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    item = get_maintenance_item(item_id)
+    if not item or not _vehicle_owned(item["vehicle_id"], me):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    body = await request.json()
+    ok = update_maintenance_item(
+        item_id, str(body.get("part_name", item["part_name"])).strip(),
+        float(body.get("interval_hours", item["interval_hours"]) or 0),
+        str(body.get("notes", item["notes"])),
+        float(body.get("last_service_hours", item["last_service_hours"]) or 0))
+    if not ok:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    _audit(request, "maintenance_update", f"item={item_id}")
+    return {"updated": True}
+
+
+@app.post("/api/maintenance/{item_id}/service")
+async def api_maintenance_service(item_id: int, request: Request):
+    """Mark a maintenance item as serviced now (records current flight hours)."""
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    item = get_maintenance_item(item_id)
+    if not item or not _vehicle_owned(item["vehicle_id"], me):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    hours = get_vehicle_flight_hours(item["vehicle_id"])
+    reset_maintenance_item_service(item_id, hours)
+    _audit(request, "maintenance_service", f"item={item_id} hours={hours}")
+    return {"serviced": True, "flight_hours": hours}
+
+
+@app.delete("/api/maintenance/{item_id}")
+async def api_maintenance_delete(item_id: int, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    item = get_maintenance_item(item_id)
+    if not item or not _vehicle_owned(item["vehicle_id"], me):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    if not delete_maintenance_item(item_id):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    _audit(request, "maintenance_delete", f"item={item_id}")
+    return {"deleted": True}
+
+
+@app.get("/api/maintenance/alerts")
+async def api_maintenance_alerts(request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    return {"alerts": get_maintenance_alerts(me["user_id"], me["is_admin"])}
+
+
+# --- F8: CSV export & calendar (#42) ---
+
+
+@app.get("/calendar", response_class=HTMLResponse)
+async def calendar_page(request: Request):
+    redirect = require_auth(request)
+    if redirect:
+        return redirect
+    me = _current(request)
+    flights = get_all_flights(me["user_id"], me["is_admin"])
+    by_month: dict[str, list[dict]] = {}
+    for f in flights:
+        m = (f.get("date") or "unknown")[:7]
+        by_month.setdefault(m, []).append(f)
+    months = sorted(by_month.keys(), reverse=True)
+    return templates.TemplateResponse(request, "calendar.html", {
+        "months": months, "by_month": by_month,
+    })
+
+
+# --- F8: API tokens (#43) ---
+
+
+@app.get("/api/tokens")
+async def api_tokens_list(request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    return {"tokens": get_api_tokens(me["user_id"])}
+
+
+@app.post("/api/tokens")
+async def api_tokens_create(request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    body = await request.json()
+    name = str(body.get("name", "")).strip() or "auto-upload"
+    raw = create_api_token(me["user_id"], name)
+    if not raw:
+        return JSONResponse({"error": "failed to create token"}, status_code=500)
+    _audit(request, "api_token_create", f"name={name}")
+    return {"token": raw, "name": name}
+
+
+@app.delete("/api/tokens/{token_id}")
+async def api_tokens_revoke(token_id: int, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    if not revoke_api_token(me["user_id"], token_id):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    _audit(request, "api_token_revoke", f"token={token_id}")
+    return {"revoked": True}
+
+
+# --- F8: Weather (#44) ---
+
+_WEATHER_CACHE: dict[str, dict] = {}
+
+
+@app.get("/api/flights/{filename:path}/weather")
+async def api_flight_weather(filename: str, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    flight = get_flight(filename, me["user_id"], me["is_admin"])
+    if not flight:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    cached = get_flight_weather(filename)
+    if cached:
+        return {"weather": cached}
+    w = await _fetch_historical_weather(flight)
+    if w is None:
+        return {"weather": None}
+    set_flight_weather(filename, w)
+    return {"weather": w}
+
+
+async def _fetch_historical_weather(flight: dict) -> dict | None:
+    """Best-effort historical weather from Open-Meteo (no key) for the flight
+    start coordinates/date. Returns None on any failure (offline, bad coords)."""
+    import asyncio
+    coords = flight.get("coordinates") or []
+    if not coords:
+        return None
+    lat, lon = coords[0][0], coords[0][1]
+    date = (flight.get("date") or "")[:10]
+    if not date or not lat or not lon:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=15) as ac:
+            r = await ac.get("https://archive-api.open-meteo.com/v1/archive",
+                             params={
+                                 "latitude": lat, "longitude": lon,
+                                 "start_date": date, "end_date": date,
+                                 "hourly": "temperature_2m,wind_speed_10m",
+                                 "timezone": "UTC"})
+            r.raise_for_status()
+            data = r.json()
+            hourly = (data.get("hourly") or {})
+            temps = hourly.get("temperature_2m") or []
+            winds = hourly.get("wind_speed_10m") or []
+            if not temps:
+                return None
+            return {
+                "avg_temp_c": round(sum(temps) / len(temps), 1),
+                "min_temp_c": round(min(temps), 1),
+                "max_temp_c": round(max(temps), 1),
+                "avg_wind_kmh": round(sum(winds) / len(winds), 1) if winds else None,
+                "max_wind_kmh": round(max(winds), 1) if winds else None,
+                "date": date,
+            }
+    except Exception:
+        return None
 
 
 # --- Public sharing (F7): view, social, og, gpx, comments/likes ---
