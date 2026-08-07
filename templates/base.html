@@ -38,6 +38,7 @@
                 <a href="/flight/audit" class="px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">Audit</a>
                 {% endif %}
                 <a href="/flight/account" class="px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">Account</a>
+                <a href="/flight/help" class="px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">Help</a>
                 <button id="themeToggle" class="ml-1 px-2 py-1.5 rounded-lg text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition">🌙</button>
                 <form method="POST" action="/flight/logout" class="inline">
                     <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token or '' }}">
@@ -52,6 +53,19 @@
     <footer class="border-t border-gray-200 dark:border-gray-700 py-4 mt-8">
         <p class="text-center text-xs text-gray-400 dark:text-gray-500">Pocket Log Analyzer — FPV Flight Telemetry Dashboard</p>
     </footer>
+    <button id="helpFab" aria-label="Help"
+            class="fixed bottom-5 right-5 z-50 w-11 h-11 rounded-full bg-sky-600 text-white text-xl font-bold shadow-lg hover:bg-sky-500 transition">?</button>
+    <div id="helpFabMenu" class="hidden fixed bottom-20 right-5 z-50 w-72 card p-3 text-sm shadow-xl">
+        <p class="font-bold mb-2 text-gray-700 dark:text-gray-200">Quick help</p>
+        <a href="/flight/help" class="block px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">📖 Open the full guide</a>
+        <a href="/flight/flights" class="block px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">✈️ Flights</a>
+        <a href="/flight/vehicles" class="block px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">🚁 Vehicles</a>
+        <a href="/flight/compare" class="block px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">⚖️ Compare</a>
+        <a href="/flight/mission" class="block px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">🎯 Missione</a>
+        <a href="/flight/report" class="block px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">📄 Report</a>
+        <a href="/flight/messages" class="block px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">💬 Messages</a>
+        <p class="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-400">Press <kbd>?</kbd> anywhere to toggle this menu.</p>
+    </div>
     <script>
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('/flight/static/sw.js');
@@ -109,6 +123,23 @@
         }
         refresh();
         setInterval(refresh, 30000);
+    })();
+    (function() {
+        const fab = document.getElementById('helpFab');
+        const menu = document.getElementById('helpFabMenu');
+        function toggle(show) {
+            if (show === undefined) show = menu.classList.contains('hidden');
+            menu.classList.toggle('hidden', !show);
+        }
+        if (fab) fab.addEventListener('click', (e) => { e.stopPropagation(); toggle(); });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === '?' && !/input|textarea|select/i.test(e.target.tagName)) {
+                e.preventDefault(); toggle();
+            }
+        });
+        document.addEventListener('click', (e) => {
+            if (menu && !menu.contains(e.target) && !(fab && fab.contains(e.target))) toggle(false);
+        });
     })();
     </script>
 </body>

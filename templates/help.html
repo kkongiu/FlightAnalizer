@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Help & Guide · Pocket Log Analyzer{% endblock %}
+{% block content %}
+<div class="max-w-4xl mx-auto">
+    <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
+        <div>
+            <h1 class="text-2xl font-bold text-sky-600 dark:text-sky-400">Help & Guide</h1>
+            <p class="text-sm text-gray-500 dark:text-gray-400">Interactive guide to get the most out of Pocket Log Analyzer.</p>
+        </div>
+        <input id="helpSearch" type="search" placeholder="Search the guide…"
+               class="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm outline-none focus:ring-2 focus:ring-sky-400" style="width:240px;">
+    </div>
+
+    <button id="resetChecklist" class="text-xs text-gray-400 hover:text-sky-500 mb-2">Reset getting-started checklist</button>
+
+    <h2 class="font-bold text-gray-700 dark:text-gray-200 mb-2">Getting started</h2>
+    <div class="grid gap-2 mb-8" id="quickstart">
+        {% for step in quickstart %}
+        <label class="card card-link flex items-start gap-3 p-3 cursor-pointer" data-search="{{ step.title }}">
+            <input type="checkbox" class="qs mt-1" data-key="qs{{ loop.index }}">
+            <span class="step-body">
+                <span class="font-semibold step-title text-sm block">{{ step.title }}</span>
+                <span class="step-text text-sm text-gray-500 dark:text-gray-400">{{ step.text }}</span>
+            </span>
+        </label>
+        {% endfor %}
+    </div>
+
+    <h2 class="font-bold text-gray-700 dark:text-gray-200 mb-2">Features</h2>
+    <div id="helpAccordion" class="space-y-2 mb-8">
+        {% for sec in sections %}
+        <div class="card card-link help-section">
+            <button class="w-full text-left p-3 flex justify-between items-center help-head" data-target="help-body-{{ loop.index }}">
+                <span class="font-semibold help-title">{{ sec.title }}</span>
+                <span class="text-gray-400 text-xl chevron">+</span>
+            </button>
+            <div id="help-body-{{ loop.index }}" class="hidden px-3 pb-3 help-body">
+                <p class="text-sm text-gray-500 dark:text-gray-400 mb-2 help-summary">{{ sec.summary }}</p>
+                <ul class="list-disc pl-6 space-y-1 text-sm">
+                    {% for step in sec.steps %}
+                    <li>{{ step }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<script>
+(function() {
+    const qs = document.querySelectorAll('#quickstart input[type=checkbox]');
+    for (const c of qs) c.checked = localStorage.getItem('help_' + c.dataset.key) === '1';
+    qs.forEach(c => c.addEventListener('change', () => {
+        localStorage.setItem('help_' + c.dataset.key, c.checked ? '1' : '0');
+    }));
+    document.getElementById('resetChecklist').addEventListener('click', () => {
+        qs.forEach(c => { c.checked = false; localStorage.removeItem('help_' + c.dataset.key); });
+    });
+
+    // Accordion
+    document.querySelectorAll('.help-head').forEach(h => h.addEventListener('click', () => {
+        const body = document.getElementById(h.dataset.target);
+        const open = !body.classList.contains('hidden');
+        body.classList.toggle('hidden', open);
+        h.querySelector('.chevron').textContent = open ? '+' : '−';
+    }));
+
+    // Live search filters sections and highlights steps
+    const input = document.getElementById('helpSearch');
+    input.addEventListener('input', () => {
+        const q = input.value.trim().toLowerCase();
+        document.querySelectorAll('#quickstart .card').forEach(card => {
+            const t = card.getAttribute('data-search').toLowerCase();
+            card.style.display = (!q || t.includes(q)) ? '' : 'none';
+        });
+        document.querySelectorAll('.help-section').forEach(sec => {
+            const title = sec.querySelector('.help-title').textContent.toLowerCase();
+            const summary = (sec.querySelector('.help-summary')||{}).textContent || '';
+            const steps = Array.from(sec.querySelectorAll('ul li')).map(li => li.textContent.toLowerCase());
+            const match = !q || title.includes(q) || summary.toLowerCase().includes(q) || steps.some(s => s.includes(q));
+            sec.style.display = match ? '' : 'none';
+            if (match && q) {
+                sec.querySelector('.help-body').classList.remove('hidden');
+                sec.querySelector('.chevron').textContent = '−';
+            }
+        });
+    });
+})();
+</script>
+{% endblock %}

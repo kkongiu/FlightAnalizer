@@ -1747,6 +1747,75 @@ async def api_rescan_nav(filename: str, request: Request):
     return {"ok": True, "matched": matched, "total": len(updated)}
 
 
+_QUICKSTART = [
+    {"title": "Import your first log",
+     "text": "Upload a CSV/GPX/blackbox log from the Dashboard or the Flights page. The analyzer parses telemetry automatically and computes stats, tracks and events."},
+    {"title": "Assign a vehicle",
+     "text": "Create a vehicle under Vehicles, then assign each flight to it (editing the flight). Useful for per-vehicle stats and battery health."},
+    {"title": "Review flight stats & events",
+     "text": "Open any flight for the map (playable timeline), metrics, detected events, tags/notes and photo gallery."},
+    {"title": "Share a flight",
+     "text": "On a flight, press Share to create a public link, copy it, toggle on/off or revoke. The link shows a public page with social buttons, GPX download and comments/likes."},
+    {"title": "Use the tools",
+     "text": "Compare flights, generate an INAV mission, render a PDF report, or chat with other users from Messages."},
+]
+
+
+def _help_sections() -> list[dict]:
+    return [
+        {"title": "Flights & logs", "summary": "Upload, parse and inspect FPV telemetry logs.",
+         "steps": [
+             "Supported formats: CSV (Betaflight/INAV-style), CLI/Blackbox where available.",
+             "Rescan Nav in a flight re-parses the log and refines the track/events.",
+             "Tags let you group flights; vehicle assignment links a flight to a drone/model.",
+         ]},
+        {"title": "Vehicles & maintenance", "summary": "Keep a per-drone history and health overview.",
+         "steps": [
+             "Each vehicle tracks flight count, total distance, flight hours and top metrics.",
+             "Battery health charts show voltage sag and mAh consumption over time.",
+             "Assign every flight to a vehicle so stats stay meaningful.",
+         ]},
+        {"title": "Compare & mission", "summary": "Analysis helpers.",
+         "steps": [
+             "Compare: overlay two flights on the same map for side-by-side analysis.",
+             "Mission: build an INAV mission from the current flight track or parameters.",
+         ]},
+        {"title": "Report & export", "summary": "Summarise and download your data.",
+         "steps": [
+             "Report renders a printable summary (single-flight or overall).",
+             "Export GPX/KML per flight and CSV of aggregated data from the tools.",
+         ]},
+        {"title": "Messages & notifications", "summary": "Private messaging between users.",
+         "steps": [
+             "Send private messages from Messages, with unread badges.",
+             "New-message email notifications can be toggled in Account preferences.",
+         ]},
+        {"title": "Sharing & social", "summary": "Public pages and community feedback.",
+         "steps": [
+             "Create a public share link per flight; the owner can revoke anytime.",
+             "Shared pages include social share buttons, og:image preview and GPX download.",
+             "Anyone with a link can like and comment on a shared flight.",
+         ]},
+        {"title": "Privacy & account", "summary": "Control your data.",
+         "steps": [
+             "Export a copy of your data (GDPR art. 20).",
+             "Delete your account (self-service; shows a summary of affected data).",
+             "Admin can read the audit log and manage users/conversations.",
+         ]},
+    ]
+
+
+@app.get("/help", response_class=HTMLResponse)
+async def help_page(request: Request):
+    redirect = require_auth(request)
+    if redirect:
+        return redirect
+    return templates.TemplateResponse(request, "help.html", {
+        "quickstart": _QUICKSTART,
+        "sections": _help_sections(),
+    })
+
+
 @app.get("/vehicles", response_class=HTMLResponse)
 async def vehicles_page(request: Request):
     redirect = require_auth(request)

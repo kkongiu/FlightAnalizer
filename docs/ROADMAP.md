@@ -80,3 +80,7 @@ Stato: **F0–F6 completate** (F2 include registrazione con conferma via email e
 - [ ] `[F8][DOMINIO]` Export Excel/CSV dei dati aggregati e calendario/timeline dei voli — [#42](https://github.com/kkongiu/FlightAnalizer/issues/42)
 - [ ] `[F8][INTEGRAZIONE]` API token per upload da script/app radio esterno (auto-upload) — [#43](https://github.com/kkongiu/FlightAnalizer/issues/43)
 - [ ] `[F8][DOMINIO]` Meteo associato al volo (vento/temperatura storica del giorno del volo) — [#44](https://github.com/kkongiu/FlightAnalizer/issues/44)
+
+## Help & guida (trasversale)
+
+- [x] Help interattivo: pagina `/help` con guida (getting-started con checklist persistente, sezioni per feature, ricerca live) e pulsante "?" flottante con menu rapido (toggle con tasto `?`)
