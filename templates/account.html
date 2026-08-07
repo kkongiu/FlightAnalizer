@@ -34,6 +34,11 @@
                 <option value="dark">Dark</option>
             </select>
             <div class="ok" id="themeOk" style="color:#16a34a;font-size:0.85rem;margin-top:0.5rem;"></div>
+            <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:var(--text-muted,#666);margin-top:0.5rem;">
+                <input type="checkbox" id="notifyNewMsg" {% if user.preferences.get('notify_new_message', true) %}checked{% endif %}>
+                Email me when I receive a new message
+            </label>
+            <div class="ok" id="notifyOk" style="color:#16a34a;font-size:0.85rem;margin-top:0.5rem;"></div>
         </div>
 
         <div class="record-card">
@@ -69,6 +74,19 @@
             });
             document.getElementById('themeOk').textContent = 'Theme saved';
         } catch(e) {}
+    });
+
+    document.getElementById('notifyNewMsg').addEventListener('change', async (e) => {
+        const ok = document.getElementById('notifyOk');
+        ok.textContent = '';
+        try {
+            await fetch('/flight/api/account/preferences', {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({preferences: {notify_new_message: e.target.checked}})
+            });
+            ok.textContent = e.target.checked ? 'Notifications on' : 'Notifications off';
+        } catch(err) { ok.textContent = 'Failed to save'; }
     });
 
     document.getElementById('saveUsernameBtn').addEventListener('click', async () => {

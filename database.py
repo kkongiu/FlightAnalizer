@@ -98,12 +98,42 @@ def _migrate_006_audit_log(conn: sqlite3.Connection):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_username ON audit_log(username)")
 
 
+def _migrate_007_messages(conn: sqlite3.Connection):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS conversations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_a INTEGER NOT NULL,
+            user_b INTEGER NOT NULL,
+            archived_by_a INTEGER NOT NULL DEFAULT 0,
+            archived_by_b INTEGER NOT NULL DEFAULT 0,
+            UNIQUE (user_a, user_b)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+            sender_id INTEGER NOT NULL,
+            recipient_id INTEGER NOT NULL,
+            body TEXT NOT NULL,
+            flight_file TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            read_at TEXT,
+            deleted_by_sender INTEGER NOT NULL DEFAULT 0,
+            deleted_by_recipient INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_recipient ON messages(recipient_id)")
+
+
 MIGRATIONS = [
     (2, "flights_owner_id", _migrate_002_flights_owner_id),
     (3, "vehicles_owner_id", _migrate_003_vehicles_owner_id),
     (4, "users_account_fields", _migrate_004_users_account_fields),
     (5, "users_email_confirmation", _migrate_005_users_email_confirmation),
     (6, "audit_log", _migrate_006_audit_log),
+    (7, "messages", _migrate_007_messages),
 ]
 
 
@@ -933,7 +963,10 @@ def count_user_data(user_id: int) -> dict:
     with _get_conn() as conn:
         flights = conn.execute("SELECT COUNT(*) FROM flights WHERE owner_id = ?", (user_id,)).fetchone()[0]
         vehicles = conn.execute("SELECT COUNT(*) FROM vehicles WHERE owner_id = ?", (user_id,)).fetchone()[0]
-    return {"flights": flights, "vehicles": vehicles}
+        messages = conn.execute(
+            "SELECT COUNT(*) FROM messages WHERE sender_id = ? OR recipient_id = ?",
+            (user_id, user_id)).fetchone()[0]
+    return {"flights": flights, "vehicles": vehicles, "messages": messages}
 
 
 def delete_user_cascade(user_id: int) -> dict:
@@ -948,6 +981,16 @@ def delete_user_cascade(user_id: int) -> dict:
             "SELECT id FROM vehicles WHERE owner_id = ?", (user_id,)).fetchall()]
         conn.execute("DELETE FROM flights WHERE owner_id = ?", (user_id,))
         conn.execute("DELETE FROM vehicles WHERE owner_id = ?", (user_id,))
+        # Remove messages and clean up conversation still linking the user.
+        conv_ids = [r[0] for r in conn.execute(
+            "SELECT id FROM conversations WHERE user_a = ? OR user_b = ?",
+            (user_id, user_id)).fetchall()]
+        for cid in conv_ids:
+            conn.execute("DELETE FROM messages WHERE conversation_id = ?", (cid,))
+            conn.execute(
+                "DELETE FROM conversations WHERE id = ? AND NOT EXISTS "
+                "(SELECT 1 FROM messages WHERE conversation_id = ?)",
+                (cid, cid))
         cur = conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
     return {"flights": flight_files, "vehicles": vehicle_ids, "user_deleted": cur.rowcount > 0}
 
@@ -1006,6 +1049,203 @@ def get_audit_log(limit: int = 200, username: str | None = None) -> list[dict]:
                 "SELECT * FROM audit_log ORDER BY ts DESC, id DESC LIMIT ?",
                 (limit,)).fetchall()
     return [dict(r) for r in rows]
+
+
+# --- Messaging (F5) ---
+
+
+def _conversation_id(user_a_id: int, user_b_id: int) -> int | None:
+    """Id of the existing conversation between two users, or None."""
+    lo, hi = sorted((int(user_a_id), int(user_b_id)))
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT id FROM conversations WHERE user_a = ? AND user_b = ?",
+            (lo, hi)).fetchone()
+    return row["id"] if row else None
+
+
+def get_or_create_conversation(user_a_id: int, user_b_id: int) -> int:
+    existing = _conversation_id(user_a_id, user_b_id)
+    if existing is not None:
+        return existing
+    lo, hi = sorted((int(user_a_id), int(user_b_id)))
+    with _get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO conversations (user_a, user_b) VALUES (?, ?)", (lo, hi))
+        return int(cur.lastrowid)
+
+
+def get_conversation_by_pair(user_a_id: int, user_b_id: int) -> dict | None:
+    a, b = sorted((int(user_a_id), int(user_b_id)))
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM conversations WHERE user_a = ? AND user_b = ?", (a, b)).fetchone()
+    return dict(row) if row else None
+
+
+def send_message(sender_id: int, recipient_id: int, body: str,
+                 flight_file: str | None = None) -> dict | None:
+    if int(sender_id) == int(recipient_id) or not body.strip():
+        return None
+    conv_id = get_or_create_conversation(sender_id, recipient_id)
+    with _get_conn() as conn:
+        # Un-archive both participants when a new message arrives.
+        conn.execute("""
+            UPDATE conversations SET archived_by_a = 0, archived_by_b = 0
+            WHERE id = ?
+        """, (conv_id,))
+        cur = conn.execute(
+            "INSERT INTO messages (conversation_id, sender_id, recipient_id, "
+            "body, flight_file) VALUES (?, ?, ?, ?, ?)",
+            (conv_id, int(sender_id), int(recipient_id), body.strip(), flight_file),
+        )
+        msg_id = int(cur.lastrowid)
+    return get_message(msg_id)
+
+
+def get_message(message_id: int) -> dict | None:
+    with _get_conn() as conn:
+        row = conn.execute("SELECT * FROM messages WHERE id = ?", (message_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_conversations_for(user_id: int) -> list[dict]:
+    """Conversations the user participates in (not archived for them), each
+    with the other participant, last message and unread count."""
+    with _get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT c.id, c.user_a, c.user_b, c.archived_by_a, c.archived_by_b,
+                   ua.username AS user_a_name, ub.username AS user_b_name
+            FROM conversations c
+            JOIN users ua ON ua.id = c.user_a
+            JOIN users ub ON ub.id = c.user_b
+            WHERE (c.user_a = ? AND c.archived_by_a = 0)
+               OR (c.user_b = ? AND c.archived_by_b = 0)
+            ORDER BY COALESCE(
+                (SELECT MAX(m.created_at) FROM messages m WHERE m.conversation_id = c.id),
+                '') DESC
+            """, (user_id, user_id)).fetchall()
+    result = []
+    for row in rows:
+        other_id = row["user_b"] if row["user_a"] == user_id else row["user_a"]
+        other_name = row["user_b_name"] if row["user_a"] == user_id else row["user_a_name"]
+        last = conn.execute(
+            "SELECT body, created_at, sender_id FROM messages "
+            "WHERE conversation_id = ? AND deleted_by_sender = 0 "
+            "AND deleted_by_recipient = 0 "
+            "ORDER BY id DESC LIMIT 1", (row["id"],)).fetchone()
+        unread = conn.execute(
+            "SELECT COUNT(*) FROM messages WHERE conversation_id = ? "
+            "AND recipient_id = ? AND read_at IS NULL "
+            "AND deleted_by_recipient = 0", (row["id"], user_id)).fetchone()[0]
+        result.append({
+            "conversation_id": row["id"],
+            "other_id": other_id,
+            "other_username": other_name,
+            "last_message": dict(last) if last else None,
+            "unread": unread,
+        })
+    return result
+
+
+def _thread_rows(conn: sqlite3.Connection, user_id: int, other_id: int,
+                 limit: int | None) -> list[dict]:
+    conv = get_conversation_by_pair(user_id, other_id)
+    if not conv:
+        return []
+    q = (
+        "SELECT * FROM messages WHERE conversation_id = ? "
+        "AND NOT (sender_id = ? AND deleted_by_sender = 1) "
+        "AND NOT (recipient_id = ? AND deleted_by_recipient = 1) "
+        "ORDER BY id DESC"
+    )
+    args: list = [conv["id"], user_id, user_id]
+    if limit:
+        q += " LIMIT ?"
+        args.append(int(limit))
+    rows = conn.execute(q, args).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_thread(user_id: int, other_id: int, limit: int | None = None) -> list[dict]:
+    """Messages exchanged between the two users, excluding ones deleted by the
+    requesting user. Isolation: caller must be one of the two participants."""
+    with _get_conn() as conn:
+        msgs = _thread_rows(conn, int(user_id), int(other_id), limit)
+    msgs.sort(key=lambda m: m["id"])
+    return msgs
+
+
+def mark_thread_read(user_id: int, other_id: int) -> int:
+    """Mark all incoming unread messages in this conversation as read."""
+    with _get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE messages SET read_at = datetime('now') "
+            "WHERE conversation_id = ? AND recipient_id = ? AND read_at IS NULL",
+            (get_or_create_conversation(user_id, other_id), user_id))
+    return cur.rowcount
+
+
+def unread_message_count(user_id: int) -> int:
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM messages WHERE recipient_id = ? "
+            "AND read_at IS NULL AND deleted_by_recipient = 0", (user_id,)).fetchone()
+    return int(row[0])
+
+
+def delete_conversation_for(user_id: int, other_id: int) -> bool:
+    """Soft-delete the conversation from the requesting user's perspective.
+    When both sides have deleted every message, the conversation is purged."""
+    conv = get_conversation_by_pair(user_id, other_id)
+    if not conv:
+        return False
+    with _get_conn() as conn:
+        conn.execute(
+            "UPDATE messages SET deleted_by_sender = 1 "
+            "WHERE conversation_id = ? AND sender_id = ?", (conv["id"], user_id))
+        conn.execute(
+            "UPDATE messages SET deleted_by_recipient = 1 "
+            "WHERE conversation_id = ? AND recipient_id = ?", (conv["id"], user_id))
+        # Purge if the other side has deleted everything too.
+        remaining = conn.execute(
+            "SELECT COUNT(*) FROM messages WHERE conversation_id = ? AND "
+            "(deleted_by_sender = 0 OR deleted_by_recipient = 0)",
+            (conv["id"],)).fetchone()[0]
+        if remaining == 0:
+            conn.execute("DELETE FROM conversations WHERE id = ?", (conv["id"],))
+            return True
+        # Otherwise archive the whole conversation for this user.
+        col = "archived_by_a" if conv["user_a"] == user_id else "archived_by_b"
+        conn.execute(f"UPDATE conversations SET {col} = 1 WHERE id = ?", (conv["id"],))
+        return True
+
+
+def get_all_conversations() -> list[dict]:
+    """Admin view of every conversation with participant usernames (F5 #27)."""
+    with _get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT c.*, ua.username AS user_a_name, ub.username AS user_b_name,
+                   (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) AS msg_count,
+                   (SELECT MAX(m.created_at) FROM messages m WHERE m.conversation_id = c.id) AS last_ts
+            FROM conversations c
+            JOIN users ua ON ua.id = c.user_a
+            JOIN users ub ON ub.id = c.user_b
+            ORDER BY last_ts DESC
+            """
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_message_admin(message_id: int) -> bool:
+    with _get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE messages SET deleted_by_sender = 1, deleted_by_recipient = 1 "
+            "WHERE id = ? AND NOT (deleted_by_sender = 1 AND deleted_by_recipient = 1)",
+            (message_id,))
+        return cur.rowcount > 0
 
 
 init_db()

@@ -1,0 +1,332 @@
+{% extends "base.html" %}
+{% block title %}Messages - Pocket Log Analyzer{% endblock %}
+{% block content %}
+{% if request.session.get('role') == 'admin' %}
+<div class="mb-4">
+  <button id="adminMsgToggle" class="px-4 py-2 border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition">
+    🛠 Admin: all conversations
+  </button>
+  <div id="adminMsgPanel" class="hidden mt-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+    <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 font-semibold text-gray-900 dark:text-gray-100">
+      All conversations (all users)
+    </div>
+    <div id="adminMsgList" class="divide-y divide-gray-100 dark:divide-gray-700 max-h-[60vh] overflow-y-auto text-sm"></div>
+  </div>
+</div>
+{% endif %}
+<div class="grid lg:grid-cols-3 gap-4">
+  <div class="lg:col-span-1">
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+      <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+        <h2 class="text-lg font-bold text-gray-900 dark:text-gray-100">Conversations</h2>
+        <button id="newMessageBtn" class="px-3 py-1.5 bg-sky-600 text-white text-sm font-medium rounded-lg hover:bg-sky-700 transition shadow-sm">New</button>
+      </div>
+      <div id="convList" class="divide-y divide-gray-100 dark:divide-gray-700 max-h-[70vh] overflow-y-auto">
+        <div class="px-4 py-3 text-gray-400 text-sm">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="lg:col-span-2">
+    <div id="threadPanel" class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col" style="min-height:70vh;">
+      <div id="threadHeader" class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 hidden items-center justify-between">
+        <div class="flex items-center gap-2">
+          <h3 id="threadTitle" class="text-lg font-bold text-gray-900 dark:text-gray-100"></h3>
+        </div>
+        <button id="deleteConvBtn" class="px-3 py-1.5 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 text-sm font-medium rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30 transition">Delete conversation</button>
+      </div>
+      <div id="threadBody" class="flex-1 p-4 overflow-y-auto space-y-3">
+        <div class="text-center text-gray-400 dark:text-gray-500 py-16">
+          <p class="text-4xl mb-3">💬</p>
+          <p>Select a conversation or start a new one.</p>
+        </div>
+      </div>
+      <div id="composer" class="hidden border-t border-gray-200 dark:border-gray-700 p-3">
+        <form id="sendForm" class="flex gap-2">
+          <textarea id="msgBody" rows="2" placeholder="Write a message..." required
+                    class="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none resize-none"></textarea>
+          <button type="submit" class="px-4 py-2 bg-sky-600 text-white text-sm font-medium rounded-lg hover:bg-sky-700 transition shadow-sm self-end">Send</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="newMsgModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+  <div class="bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 w-full max-w-md">
+    <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+      <h3 class="font-bold text-gray-900 dark:text-gray-100">New message</h3>
+      <button id="closeModal" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">✕</button>
+    </div>
+    <div class="p-4 space-y-3">
+      <div>
+        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Recipient (username)</label>
+        <input id="msgTo" type="text" list="userList" placeholder="username"
+               class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none">
+        <datalist id="userList"></datalist>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Message</label>
+        <textarea id="msgText" rows="3" placeholder="Message text (optional if attaching a flight)"
+                  class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none resize-none"></textarea>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Attach a flight (optional)</label>
+        <select id="msgFlight" class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm outline-none">
+          <option value="">— none —</option>
+        </select>
+      </div>
+      <div class="error" id="newMsgError" style="color:#ef4444;font-size:0.85rem;"></div>
+      <button id="sendNewMsgBtn" class="w-full py-2 bg-sky-600 text-white text-sm font-medium rounded-lg hover:bg-sky-700 transition shadow-sm">Send message</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const csrf = document.querySelector('meta[name="csrf-token"]').content;
+const isAdmin = {{ 'true' if request.session.get('role') == 'admin' else 'false' }};
+let currentOther = null;
+let pollTimer = null;
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function fmtTs(ts) {
+  if (!ts) return '';
+  const d = new Date(ts.includes('T') ? ts : ts.replace(' ', 'T') + 'Z');
+  if (isNaN(d)) return String(ts).slice(0, 19);
+  return d.toLocaleString();
+}
+
+async function loadConversations() {
+  const list = document.getElementById('convList');
+  try {
+    const res = await fetch('/flight/api/messages/conversations');
+    if (!res.ok) { list.innerHTML = '<div class="px-4 py-3 text-red-500 text-sm">Forbidden</div>'; return; }
+    const rows = await res.json();
+    if (!rows.length) { list.innerHTML = '<div class="px-4 py-3 text-gray-400 text-sm">No conversations yet.</div>'; return; }
+    list.innerHTML = rows.map(c => `
+      <button class="conv-row w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700/40 transition ${currentOther === c.other_id ? 'bg-sky-50 dark:bg-sky-900/20' : ''}"
+              data-other="${c.other_id}">
+        <div class="flex items-center justify-between">
+          <span class="font-semibold text-gray-900 dark:text-gray-100">${esc(c.other_username)}</span>
+          ${c.unread ? `<span class="bg-sky-600 text-white text-xs font-bold rounded-full px-2 py-0.5">${c.unread}</span>` : ''}
+        </div>
+        <div class="text-xs text-gray-500 dark:text-gray-400 truncate mt-1">
+          ${c.last_message ? esc(c.last_message.body.slice(0, 80) || '(flight attached)') : ''}
+        </div>
+        <div class="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">${fmtTs(c.last_message && c.last_message.created_at)}</div>
+      </button>`).join('');
+    document.querySelectorAll('.conv-row').forEach(btn =>
+      btn.addEventListener('click', () => openThread(parseInt(btn.dataset.other))));
+  } catch(e) {
+    list.innerHTML = '<div class="px-4 py-3 text-red-500 text-sm">Error</div>';
+  }
+}
+
+async function openThread(otherId) {
+  currentOther = otherId;
+  document.getElementById('threadHeader').classList.remove('hidden');
+  document.getElementById('threadHeader').classList.add('flex');
+  document.getElementById('composer').classList.remove('hidden');
+  document.getElementById('deleteConvBtn').disabled = false;
+  const body = document.getElementById('threadBody');
+  body.innerHTML = '<div class="text-center text-gray-400 py-16">Loading...</div>';
+  try {
+    const res = await fetch(`/flight/api/messages/conversations/${otherId}`);
+    if (!res.ok) { body.innerHTML = '<div class="text-center text-red-500 py-16">Forbidden</div>'; return; }
+    const data = await res.json();
+    document.getElementById('threadTitle').textContent = data.other ? data.other.username : 'Conversation';
+    renderThread(data.messages);
+    loadConversations();
+  } catch(e) {
+    body.innerHTML = '<div class="text-center text-red-500 py-16">Error</div>';
+  }
+}
+
+function renderThread(msgs) {
+  const body = document.getElementById('threadBody');
+  if (!msgs.length) {
+    body.innerHTML = '<div class="text-center text-gray-400 dark:text-gray-500 py-16">No messages in this conversation.</div>';
+    return;
+  }
+  body.innerHTML = msgs.map(m => `
+    <div class="flex ${m.sender_id === window.__me_id ? 'justify-end' : 'justify-start'}">
+      <div class="max-w-[75%] ${m.sender_id === window.__me_id
+          ? 'bg-sky-600 text-white'
+          : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100'} rounded-xl px-3 py-2 text-sm">
+        ${m.body ? `<div class="whitespace-pre-wrap break-words">${esc(m.body)}</div>` : ''}
+        ${m.flight_file ? `<a href="/flight/flight/${encodeURIComponent(m.flight_file)}" class="block mt-1 text-xs underline ${m.sender_id === window.__me_id ? 'text-white/80' : 'text-sky-600'}">🛸 ${esc(m.flight_file)}</a>` : ''}
+        <div class="text-[11px] mt-1 ${m.sender_id === window.__me_id ? 'text-white/70' : 'text-gray-400 dark:text-gray-500'}">${fmtTs(m.created_at)}</div>
+      </div>
+    </div>`).join('');
+  body.scrollTop = body.scrollHeight;
+}
+
+async function sendMessage() {
+  const body = document.getElementById('msgBody').value.trim();
+  if (!currentOther) return;
+  const res = await fetch('/flight/api/messages', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({to: String(currentOther), body})
+  });
+  if (res.ok) {
+    document.getElementById('msgBody').value = '';
+    openThread(currentOther);
+  } else {
+    const b = await res.json().catch(() => ({}));
+    alert(b.error || 'Send failed');
+  }
+}
+
+async function loadUsers() {
+  try {
+    const res = await fetch('/flight/api/messages/conversations');
+    if (!res.ok) return;
+    const convs = await res.json();
+    document.getElementById('userList').innerHTML = convs
+      .map(c => `<option value="${esc(c.other_username)}">`).join('');
+  } catch(e) {}
+}
+
+async function loadFlights() {
+  try {
+    const res = await fetch('/flight/api/flights');
+    if (!res.ok) return;
+    const flights = await res.json();
+    document.getElementById('msgFlight').innerHTML =
+      '<option value="">— none —</option>' +
+      flights.map(f => `<option value="${esc(f.filename)}">${esc(f.filename)}</option>`).join('');
+  } catch(e) {}
+}
+
+async function sendNewMessage() {
+  const err = document.getElementById('newMsgError');
+  err.textContent = '';
+  const to = document.getElementById('msgTo').value.trim();
+  const body = document.getElementById('msgText').value.trim();
+  const flight = document.getElementById('msgFlight').value;
+  const res = await fetch('/flight/api/messages', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({to, body, flight_file: flight || undefined})
+  });
+  if (res.ok) {
+    const msg = await res.json();
+    document.getElementById('newMsgModal').classList.add('hidden');
+    document.getElementById('msgText').value = '';
+    await loadConversations();
+    await openThread(msg.sender_id === window.__me_id ? msg.recipient_id : msg.sender_id);
+  } else {
+    const b = await res.json().catch(() => ({}));
+    err.textContent = b.error || 'Send failed';
+  }
+}
+
+async function refreshBadge() {
+  const badge = document.getElementById('msgUnreadBadge');
+  if (!badge) return;
+  const res = await fetch('/flight/api/messages/unread-count').catch(() => null);
+  if (!res || !res.ok) return;
+  const data = await res.json().catch(() => ({}));
+  if (data.unread > 0) {
+    badge.textContent = data.unread > 99 ? '99+' : data.unread;
+    badge.classList.remove('hidden');
+  } else {
+    badge.classList.add('hidden');
+  }
+}
+
+document.getElementById('sendForm').addEventListener('submit', e => { e.preventDefault(); sendMessage(); });
+document.getElementById('newMessageBtn').addEventListener('click', () => {
+  document.getElementById('newMsgModal').classList.remove('hidden');
+});
+document.getElementById('closeModal').addEventListener('click', () =>
+  document.getElementById('newMsgModal').classList.add('hidden'));
+document.getElementById('newMsgModal').addEventListener('click', e => {
+  if (e.target.id === 'newMsgModal') document.getElementById('newMsgModal').classList.add('hidden');
+});
+document.getElementById('sendNewMsgBtn').addEventListener('click', sendNewMessage);
+document.getElementById('deleteConvBtn').addEventListener('click', async () => {
+  if (!currentOther) return;
+  if (!confirm('Delete this conversation? It will be removed from your view.')) return;
+  const res = await fetch(`/flight/api/messages/conversations/${currentOther}`, {method: 'DELETE'});
+  if (res.ok) {
+    currentOther = null;
+    document.getElementById('threadHeader').classList.add('hidden');
+    document.getElementById('composer').classList.add('hidden');
+    document.getElementById('threadBody').innerHTML =
+      '<div class="text-center text-gray-400 dark:text-gray-500 py-16">Conversation deleted.</div>';
+    loadConversations();
+    refreshBadge();
+  }
+});
+
+window.__me_id = {{ request.session.get('user_id') or 0 }};
+window.__me = {{ request.session.get('username')|tojson }};
+
+async function loadAdminConversations() {
+  const list = document.getElementById('adminMsgList');
+  if (!list) return;
+  list.innerHTML = '<div class="px-4 py-3 text-gray-400">Loading...</div>';
+  try {
+    const res = await fetch('/flight/api/messages/admin/conversations');
+    if (!res.ok) { list.innerHTML = '<div class="px-4 py-3 text-red-500">Forbidden</div>'; return; }
+    const rows = await res.json();
+    if (!rows.length) { list.innerHTML = '<div class="px-4 py-3 text-gray-400">No conversations.</div>'; return; }
+    list.innerHTML = rows.map(c => `
+      <div class="px-4 py-3">
+        <div class="flex items-center justify-between mb-1">
+          <span class="font-semibold text-gray-900 dark:text-gray-100">${esc(c.user_a_name)} ⇄ ${esc(c.user_b_name)}</span>
+          <span class="text-xs text-gray-400">${c.msg_count} msgs · ${fmtTs(c.last_ts)}</span>
+        </div>
+        <button class="admin-view text-xs text-sky-600 hover:underline" data-cid="${c.id}">view</button>
+        <div class="admin-thread hidden mt-2 space-y-2" id="adminThread-${c.id}"></div>
+      </div>`).join('');
+    document.querySelectorAll('.admin-view').forEach(btn =>
+      btn.addEventListener('click', () => toggleAdminThread(btn.dataset.cid, btn)));
+  } catch(e) {
+    list.innerHTML = '<div class="px-4 py-3 text-red-500">Error</div>';
+  }
+}
+
+async function toggleAdminThread(cid, btn) {
+  const box = document.getElementById('adminThread-' + cid);
+  if (!box.classList.contains('hidden')) { box.classList.add('hidden'); btn.textContent = 'view'; return; }
+  btn.textContent = 'loading...';
+  const res = await fetch('/flight/api/messages/admin/conversations/' + cid).catch(() => null);
+  const msgs = res && res.ok ? await res.json() : [];
+  box.innerHTML = msgs.map(m => `
+    <div class="flex items-start justify-between gap-2 bg-gray-50 dark:bg-gray-700/40 rounded-lg px-2 py-1.5">
+      <div class="flex-1">
+        <span class="text-[11px] text-gray-500">${esc(m.sender_id === window.__me_id ? 'me' : ('user#' + m.sender_id))} · ${fmtTs(m.created_at)}</span>
+        <div class="break-words">${esc(m.body)}</div>
+        ${m.flight_file ? `<div class="text-xs text-sky-600">🛸 ${esc(m.flight_file)}</div>` : ''}
+      </div>
+      <button class="admin-del text-red-500 text-xs hover:underline" data-mid="${m.id}">delete</button>
+    </div>`).join('');
+  box.classList.remove('hidden');
+  btn.textContent = 'hide';
+  box.querySelectorAll('.admin-del').forEach(b =>
+    b.addEventListener('click', async () => {
+      const r = await fetch('/flight/api/messages/admin/' + b.dataset.mid, {method: 'DELETE'});
+      if (r.ok) { b.closest('div').remove(); }
+    }));
+}
+
+if (document.getElementById('adminMsgToggle')) {
+  document.getElementById('adminMsgToggle').addEventListener('click', () => {
+    const panel = document.getElementById('adminMsgPanel');
+    panel.classList.toggle('hidden');
+    if (!panel.classList.contains('hidden')) loadAdminConversations();
+  });
+}
+
+loadConversations();
+loadUsers();
+loadFlights();
+</script>
+{% endblock %}

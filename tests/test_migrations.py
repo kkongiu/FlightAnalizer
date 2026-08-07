@@ -20,12 +20,12 @@ def test_fresh_db_is_at_latest_version(tmp_db):
 
 def test_migration_applied_exactly_once(tmp_db):
     flights, _, version = _prisma_owner_cols(tmp_db)
-    assert version == 6
+    assert version == 7
     # owner_id appears exactly once per table
     assert flights.count("owner_id") == 1
     database._apply_migrations()
     _, _, version2 = _prisma_owner_cols(tmp_db)
-    assert version2 == 6
+    assert version2 == 7
 
 
 def test_migration_002_backfills_flights_owner_to_first_admin(monkeypatch, tmp_path):
@@ -48,7 +48,7 @@ def test_migration_002_backfills_flights_owner_to_first_admin(monkeypatch, tmp_p
         flights = [r[1] for r in conn.execute("PRAGMA table_info(flights)")]
         vehicles = [r[1] for r in conn.execute("PRAGMA table_info(vehicles)")]
         version = conn.execute("PRAGMA user_version").fetchone()[0]
-        assert version == 6
+        assert version == 7
         assert "owner_id" in flights
         assert "owner_id" in vehicles
         # the single admin is still there (users untouched by migrations)

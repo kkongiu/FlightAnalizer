@@ -29,6 +29,10 @@
                 <a href="/flight/compare" class="px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">Compare</a>
                 <a href="/flight/mission" class="px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">Missione</a>
                 <a href="/flight/report" class="px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">Report</a>
+                <a href="/flight/messages" class="relative px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">
+                    Messages
+                    <span id="msgUnreadBadge" class="hidden absolute -top-0.5 -right-0.5 bg-sky-600 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5"></span>
+                </a>
                 {% if request.session.get('role') == 'admin' %}
                 <a href="/flight/users" class="px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">Users</a>
                 <a href="/flight/audit" class="px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">Audit</a>
@@ -86,6 +90,25 @@
                 btn.textContent = isDark ? '🌙' : '☀️';
             });
         }
+    })();
+    (function() {
+        const badge = document.getElementById('msgUnreadBadge');
+        if (!badge) return;
+        async function refresh() {
+            try {
+                const res = await fetch('/flight/api/messages/unread-count');
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data.unread > 0) {
+                    badge.textContent = data.unread > 99 ? '99+' : data.unread;
+                    badge.classList.remove('hidden');
+                } else {
+                    badge.classList.add('hidden');
+                }
+            } catch(e) {}
+        }
+        refresh();
+        setInterval(refresh, 30000);
     })();
     </script>
 </body>

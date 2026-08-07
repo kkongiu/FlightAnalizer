@@ -5,7 +5,7 @@ la fase di implementazione e la lista è in ordine di esecuzione: ogni fase va
 completata prima di passare alla successiva.
 
 Ogni voce corrisponde a un'issue GitHub: il numero `[#N]` è il riferimento.
-Stato: **F0–F4 completate** (F2 include registrazione con conferma via email e consenso privacy; F4 include export dati, cancellazione self-service e audit log); F5–F8 pending.
+Stato: **F0–F5 completate** (F2 include registrazione con conferma via email e consenso privacy; F4 include export dati, cancellazione self-service e audit log; F5 include messaggistica privata con badge non letti, notifiche email e allegato volo); F6–F8 pending.
 
 ---
 
@@ -50,11 +50,11 @@ Stato: **F0–F4 completate** (F2 include registrazione con conferma via email e
 
 ## F5 · Messaggi e notifiche
 
-- [ ] `[F5][MESSAGGI]` Messaggistica privata tra utenti: invio, conversazioni, sola lettura dei propri messaggi — [#25](https://github.com/kkongiu/FlightAnalizer/issues/25)
-- [ ] `[F5][MESSAGGI]` Pagina Messaggi + badge non letti e notifiche in-app — [#26](https://github.com/kkongiu/FlightAnalizer/issues/26)
-- [ ] `[F5][MESSAGGI]` Eliminazione/archiviazione conversazioni e gestione per admin — [#27](https://github.com/kkongiu/FlightAnalizer/issues/27)
-- [ ] `[F5][NOTIFICHE]` Notifiche email/push per nuovi messaggi, commenti e condivisioni (cross-device) — [#28](https://github.com/kkongiu/FlightAnalizer/issues/28)
-- [ ] `[F5][MESSAGGI]` Eventuale allegato/menzione di un volo in un messaggio (rispetta l'isolamento) — [#29](https://github.com/kkongiu/FlightAnalizer/issues/29)
+- [x] `[F5][MESSAGGI]` Messaggistica privata tra utenti: invio, conversazioni, sola lettura dei propri messaggi — [#25](https://github.com/kkongiu/FlightAnalizer/issues/25)
+- [x] `[F5][MESSAGGI]` Pagina Messaggi + badge non letti e notifiche in-app — [#26](https://github.com/kkongiu/FlightAnalizer/issues/26)
+- [x] `[F5][MESSAGGI]` Eliminazione/archiviazione conversazioni e gestione per admin — [#27](https://github.com/kkongiu/FlightAnalizer/issues/27)
+- [x] `[F5][NOTIFICHE]` Notifiche email/push per nuovi messaggi, commenti e condivisioni (cross-device) — [#28](https://github.com/kkongiu/FlightAnalizer/issues/28)
+- [x] `[F5][MESSAGGI]` Eventuale allegato/menzione di un volo in un messaggio (rispetta l'isolamento) — [#29](https://github.com/kkongiu/FlightAnalizer/issues/29)
 
 ## F6 · Foto
 

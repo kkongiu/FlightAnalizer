@@ -37,7 +37,11 @@ from database import (save_flight, get_all_flights, get_flight, delete_flight,
                       clear_reset_token, set_user_preferences,
                       get_user_by_email, create_confirm_token,
                       get_confirm_token_user, clear_confirm_token, activate_user,
-                      log_audit, get_audit_log)
+                      log_audit, get_audit_log,
+                      send_message, get_thread, get_conversations_for,
+                      mark_thread_read, unread_message_count,
+                      delete_conversation_for, get_all_conversations,
+                      delete_message_admin, get_conversation_by_pair)
 import httpx
 import backup
 import mailer
@@ -676,7 +680,7 @@ async def api_account_preferences(request: Request):
     prefs = body.get("preferences", {})
     if not isinstance(prefs, dict):
         return JSONResponse({"error": "preferences must be an object"}, status_code=400)
-    allowed = {"theme"}
+    allowed = {"theme", "notify_new_message"}
     set_user_preferences(me["user_id"], {k: v for k, v in prefs.items() if k in allowed})
     return {"ok": True}
 
@@ -701,6 +705,7 @@ async def api_account_export(request: Request):
         },
         "flights": get_all_flights(me["user_id"], me["is_admin"]),
         "vehicles": [v.__dict__ for v in get_vehicles(me["user_id"], me["is_admin"])],
+        "messages": _export_messages(me["user_id"]),
     }
     _audit(request, "data_export")
     name = re.sub(r"[^\w\-.]", "_", user["username"]) or "user"
@@ -2043,6 +2048,195 @@ async def api_audit(request: Request):
         pass
     username = (request.query_params.get("username") or "").strip() or None
     return get_audit_log(limit=limit, username=username)
+
+
+# --- Messaging (F5) ---
+
+
+@app.get("/messages", response_class=HTMLResponse)
+async def messages_page(request: Request):
+    redirect = require_auth(request)
+    if redirect:
+        return redirect
+    return templates.TemplateResponse(request, "messages.html", {})
+
+
+def _other_participants(request: Request) -> list[dict]:
+    """Usernames currently holding a conversation with the current user."""
+    me = _current(request)
+    return [
+        {"other_id": c["other_id"], "other_username": c["other_username"]}
+        for c in get_conversations_for(me["user_id"])
+    ]
+
+
+@app.get("/api/messages/unread-count")
+async def api_messages_unread(request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    return {"unread": unread_message_count(me["user_id"])}
+
+
+@app.get("/api/messages/conversations")
+async def api_messages_conversations(request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    return get_conversations_for(me["user_id"])
+
+
+@app.get("/api/messages/conversations/{other_id}")
+async def api_messages_thread(other_id: int, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    if other_id == me["user_id"]:
+        return JSONResponse({"error": "invalid recipient"}, status_code=400)
+    conv = get_conversation_by_pair(me["user_id"], other_id)
+    if not conv:
+        return {"messages": [], "other": None}
+    thread = get_thread(me["user_id"], other_id)
+    mark_thread_read(me["user_id"], other_id)
+    other = get_user_by_id(other_id)
+    return {
+        "messages": thread,
+        "other": {"id": other["id"], "username": other["username"]} if other else None,
+    }
+
+
+@app.post("/api/messages")
+async def api_messages_send(request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    body = await request.json()
+    recipient_spec = str(body.get("to", "")).strip()
+    if not recipient_spec:
+        return JSONResponse({"error": "recipient is required"}, status_code=400)
+    recipient = get_user(recipient_spec) or get_user_by_id(recipient_spec)
+    if not recipient:
+        return JSONResponse({"error": "recipient not found"}, status_code=404)
+    if recipient["status"] != "active":
+        return JSONResponse({"error": "recipient account is not active"}, status_code=400)
+    recipient_id = recipient["id"]
+    if recipient_id == me["user_id"]:
+        return JSONResponse({"error": "cannot message yourself"}, status_code=400)
+    text = str(body.get("body", "")).strip()
+    flight_file = (str(body.get("flight_file", "")) or "").strip() or None
+    if not text and not flight_file:
+        return JSONResponse({"error": "message is empty"}, status_code=400)
+    if flight_file:
+        # #29: only attach a flight the sender can access (isolation).
+        if not get_flight(flight_file, me["user_id"], me["is_admin"]):
+            return JSONResponse({"error": "flight not accessible"}, status_code=404)
+    msg = send_message(me["user_id"], recipient_id, text, flight_file)
+    if not msg:
+        return JSONResponse({"error": "could not send message"}, status_code=400)
+    _audit(request, "message_send", f"to={recipient['username']}")
+    notify_new_message_notification(recipient, {"username": me["username"]},
+                                    text, flight_file)
+    return msg
+
+
+@app.delete("/api/messages/conversations/{other_id}")
+async def api_messages_delete_conversation(other_id: int, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    ok = delete_conversation_for(me["user_id"], other_id)
+    if not ok:
+        return JSONResponse({"error": "conversation not found"}, status_code=404)
+    _audit(request, "conversation_delete", f"with={other_id}")
+    return {"deleted": True}
+
+
+# --- Admin messaging management (F5 #27) ---
+
+
+@app.get("/api/messages/admin/conversations")
+async def api_messages_admin_conversations(request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    forbidden = require_admin(request)
+    if forbidden:
+        return forbidden
+    return get_all_conversations()
+
+
+@app.get("/api/messages/admin/conversations/{conversation_id}")
+async def api_messages_admin_thread(conversation_id: int, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    forbidden = require_admin(request)
+    if forbidden:
+        return forbidden
+    with database._get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM messages WHERE conversation_id = ? ORDER BY id ASC",
+            (conversation_id,)).fetchall()
+    return [dict(r) for r in row]
+
+
+@app.delete("/api/messages/admin/{message_id}")
+async def api_messages_admin_delete_message(message_id: int, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    forbidden = require_admin(request)
+    if forbidden:
+        return forbidden
+    if not delete_message_admin(message_id):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    _audit(request, "message_delete_admin", f"message={message_id}")
+    return {"deleted": True}
+
+
+def _export_messages(user_id: int) -> list[dict]:
+    """Every message the user sent or received, across all conversations."""
+    out = []
+    for c in get_conversations_for(user_id):
+        for m in get_thread(user_id, c["other_id"]):
+            out.append(m)
+    return out
+
+
+def notify_new_message_notification(recipient: dict, sender: dict, text: str,
+                                    flight_file: str | None) -> None:
+    """Send an email notification for a new message (F5 #28).
+
+    Requires SMTP configuration and an email on the recipient account; the
+    recipient can disable it via the notify_new_message preference."""
+    email = (recipient.get("email") or "").strip()
+    prefs = recipient.get("preferences") or {}
+    if not email or not mailer.smtp_configured():
+        return
+    if not prefs.get("notify_new_message", True):
+        return
+    sender_name = sender.get("username") or "Someone"
+    try:
+        base = PUBLIC_URL or ""
+        link = f"{base}/flight/messages"
+        body_text = (f"Ciao {recipient['username']},\n\n"
+                     f"{sender_name} ti ha inviato un messaggio su Pocket Log Analyzer:\n\n"
+                     f"{text}\n\n"
+                     f"Apri la conversazione: {link}\n")
+        body_html = (f"<p>Ciao <strong>{recipient['username']}</strong>,</p>"
+                     f"<p><strong>{sender_name}</strong> ti ha inviato un messaggio:</p>"
+                     f"<blockquote>{text}</blockquote>"
+                     f'<p><a href="{link}">Apri la conversazione</a></p>')
+        mailer.send_email(email, "Nuovo messaggio - Pocket Log Analyzer",
+                          body_text, body_html)
+    except Exception:
+        logger = logging.getLogger(__name__)
+        logger.warning("failed to send message notification email", exc_info=True)
 
 
 # Auto-sync: merge nav telemetry for all flights and recompute derived metrics
