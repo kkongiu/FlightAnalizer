@@ -463,10 +463,10 @@ Done so far:
 - [x] **F4 · Privacy** — self-service data export (GDPR art. 20) and account deletion, audit log viewer, privacy/terms page
 - [x] **F5 · Messaggi e notifiche** — private messaging with conversations and unread badge, email notifications, flight attachment (isolation-aware), admin conversation management
 - [x] **F6 · Foto** — per-flight photo gallery (upload, lightbox, single delete), cover photos with list previews, owner/admin-only management
-- [x] **F7 · Sharing** — public share links with revoke/toggle, public view page (map/stats, no login), social share buttons, og:image preview, public GPX download, comments/likes board
+- [x] **F7 · Sharing** — public share links with revoke/toggle, public view page (map/stats, no login), social share buttons, og:image preview, public GPX download, comments/likes board, team groups (share to a group), contacts with friend requests, community feed of shared flights, per-flight visibility (public/contacts/private)
 - [x] **F8 · Dominio e integrazione** — per-vehicle flight-hours maintenance with part intervals & alerts, aggregated CSV export + calendar/timeline page, upload API tokens for external scripts (auto-upload), historical weather on the flight page
 
-Still open (from roadmap extras/ideas): team groups, friend-style contacts/feed,
+Still open (from roadmap extras/ideas): photo anchored to track point (geotag),
 Excel export, Docker image, i18n, PDF report enhancements.
 
 Other ideas from the original roadmap are still on the list: battery cell-level analysis,

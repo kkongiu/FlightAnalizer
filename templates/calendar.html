@@ -1,34 +1,91 @@
 {% extends "base.html" %}
-{% block title %}Calendar & Timeline · Pocket Log Analyzer{% endblock %}
+{% block title %}Calendar · Pocket Log Analyzer{% endblock %}
 {% block content %}
 <div class="dashboard">
     <div class="header-bar">
-        <h2>Calendar & Timeline</h2>
-        <a class="btn-primary" href="/flight/api/export/flights.csv" style="text-decoration:none;">⬇ Export CSV</a>
+        <h2><span id="calTitle">Calendar</span></h2>
+        <div class="header-actions">
+            <button id="calPrev" class="btn-primary" style="background:var(--bg);color:var(--text);box-shadow:none;">‹</button>
+            <button id="calToday" class="btn-primary" style="background:var(--bg);color:var(--text);box-shadow:none;font-size:0.75rem;">Today</button>
+            <button id="calNext" class="btn-primary" style="background:var(--bg);color:var(--text);box-shadow:none;">›</button>
+            <a class="btn-primary" href="/flight/api/export/flights.csv" style="text-decoration:none;">⬇ Export CSV</a>
+        </div>
     </div>
 
-    {% if not months %}
+    {% if not flights %}
     <div class="empty-state">
         <div class="empty-icon">📅</div>
         <p>No flights recorded yet.</p>
     </div>
     {% endif %}
 
-    {% for m in months %}
-    <div class="card mb-4" style="padding:1rem;">
-        <h3 class="font-bold text-sky-600 dark:text-sky-400 mb-3">{{ m }}</h3>
-        <div style="border-left:3px solid var(--accent);padding-left:1rem;">
-            {% for f in by_month[m] %}
-            <div class="flex items-center gap-3 py-1.5" style="border-bottom:1px solid rgba(128,128,128,0.1);">
-                <span style="width:6px;height:6px;border-radius:50%;background:var(--accent);flex-shrink:0;"></span>
-                <span style="min-width:4.5rem;font-size:0.8rem;color:var(--text-secondary);">{{ f.date }} {{ f.start_time }}</span>
-                <a href="/flight/{{ f.filename }}" style="font-size:0.9rem;color:var(--accent);text-decoration:none;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ f.filename }}</a>
-                <span style="font-size:0.75rem;color:var(--text-secondary);">{{ "%.2f"|format(f.distance_km or 0) }} km</span>
-                <span style="font-size:0.75rem;color:var(--text-secondary);">{{ f.duration_s|fmt_duration }}</span>
-            </div>
-            {% endfor %}
-        </div>
+    <div id="calGrid" class="card" style="padding:0.75rem;display:none;">
+        <div id="calWeekdays" style="display:grid;grid-template-columns:repeat(7,1fr);gap:0.25rem;margin-bottom:0.35rem;"></div>
+        <div id="calCells" style="display:grid;grid-template-columns:repeat(7,1fr);gap:0.25rem;"></div>
     </div>
-    {% endfor %}
+    <div id="calEmpty" class="empty-state" style="display:none;">
+        <div class="empty-icon">✈️</div>
+        <p>No flights in this month.</p>
+    </div>
 </div>
+
+<script>
+(function() {
+    const flights = {{ flights|tojson }};
+    const byDate = {};
+    flights.forEach(f => {
+        const d = (f.date || '').split('T')[0];
+        if (d) (byDate[d] = byDate[d] || []).push(f);
+    });
+
+    const weekdays = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const monthNames = ['January','February','March','April','May','June',
+                        'July','August','September','October','November','December'];
+    let view = new Date();
+    view.setDate(1);
+
+    function render() {
+        const year = view.getFullYear(), month = view.getMonth();
+        document.getElementById('calTitle').textContent = monthNames[month] + ' ' + year;
+        const wd = document.getElementById('calWeekdays');
+        wd.innerHTML = weekdays.map(w => '<div style="text-align:center;font-size:0.7rem;color:var(--text-secondary);font-weight:600;">' + w + '</div>').join('');
+
+        const firstDow = (new Date(year, month, 1)).getDay(); // 0=Sun
+        const daysInMonth = (new Date(year, month + 1, 0)).getDate();
+        const cells = document.getElementById('calCells');
+        let html = '';
+        for (let i = 0; i < firstDow; i++) html += '<div></div>';
+        let hasAny = false;
+        for (let d = 1; d <= daysInMonth; d++) {
+            const key = year + '-' + String(month + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+            const list = byDate[key] || [];
+            if (list.length) hasAny = true;
+            const today = (year === new Date().getFullYear() && month === new Date().getMonth() && d === new Date().getDate());
+            let flightsHtml = '';
+            if (list.length) {
+                flightsHtml = '<div style="display:flex;flex-wrap:wrap;gap:0.2rem;">' +
+                    list.map(f =>
+                        '<a href="/flight/flight/' + encodeURIComponent(f.filename) + '" ' +
+                        'title="' + (f.start_time || '') + ' ' + f.filename + '" ' +
+                        'style="font-size:0.85rem;line-height:1;text-decoration:none;">✈️</a>').join('') +
+                    '</div>';
+            }
+            html += '<div style="min-height:74px;border:1px solid rgba(128,128,128,0.15);border-radius:6px;padding:0.3rem;' +
+                (today ? 'background:rgba(14,165,233,0.12);' : 'background:var(--bg);') + '">' +
+                '<div style="font-size:0.7rem;font-weight:700;color:' + (today ? 'var(--accent)' : 'var(--text)') + ';margin-bottom:0.2rem;">' + d +
+                (list.length ? ' <span style="color:var(--accent);font-weight:400;">(' + list.length + ')</span>' : '') + '</div>' +
+                flightsHtml + '</div>';
+        }
+        cells.innerHTML = html;
+        document.getElementById('calGrid').style.display = hasAny ? 'block' : 'none';
+        document.getElementById('calEmpty').style.display = hasAny ? 'none' : 'block';
+    }
+
+    document.getElementById('calPrev').addEventListener('click', () => { view.setMonth(view.getMonth() - 1); render(); });
+    document.getElementById('calNext').addEventListener('click', () => { view.setMonth(view.getMonth() + 1); render(); });
+    document.getElementById('calToday').addEventListener('click', () => { view = new Date(); view = new Date(view.getFullYear(), view.getMonth(), 1); render(); });
+
+    render();
+})();
+</script>
 {% endblock %}

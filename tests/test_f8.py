@@ -109,8 +109,10 @@ def test_calendar_page(client):
     assert _login(client)
     r = client.get("/calendar")
     assert r.status_code == 200
-    assert "2020-01" in r.text
-    assert "2019-11" in r.text
+    assert "Calendar" in r.text
+    assert "byDate" in r.text        # month-grid view builds from embedded flights
+    assert "calCells" in r.text
+    assert "2019-11-05" in r.text    # embedded flight dates
     assert "Export CSV" in r.text
 
 

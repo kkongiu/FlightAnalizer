@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Feed - Pocket Log Analyzer{% endblock %}
+{% block content %}
+<div class="dashboard">
+    <div class="header-bar">
+        <h2>Feed</h2>
+        <span style="font-size:0.75rem;color:var(--text-secondary);">Flights shared by your contacts</span>
+    </div>
+
+    {% if not flights %}
+    <div class="empty-state">
+        <div class="empty-icon">📡</div>
+        <p>No shared flights from your contacts yet.</p>
+        <p style="font-size:0.75rem;color:var(--text-secondary);">Add contacts from your account page and ask them to set a flight's visibility to "Contacts" or "Public".</p>
+    </div>
+    {% else %}
+    <div class="flights-grid">
+        {% for f in flights %}
+        <a href="/flight/flight/{{ f.filename }}" class="flight-card" style="text-decoration:none;display:block;">
+            <div class="flight-card-header">
+                <span>{{ f.date }} {{ f.start_time }}</span>
+                <span style="font-size:0.7rem;padding:0.15rem 0.4rem;border-radius:4px;background:rgba(14,165,233,0.1);color:var(--accent);">{{ f.owner_username }}</span>
+            </div>
+            <div style="font-size:0.8rem;color:var(--text-secondary);">
+                <div>{{ f.distance_km|round(2) if f.distance_km else "—" }} km · {{ '%.0f'|format(f.max_alt_m or 0) }} m max</div>
+                <div style="margin-top:0.3rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ f.filename }}</div>
+                {% if f.visibility == 'public' %}<span style="font-size:0.65rem;color:#22c55e;">● public</span>{% endif %}
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

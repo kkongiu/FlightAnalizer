@@ -203,6 +203,49 @@ def _migrate_010_f8_domain(conn: sqlite3.Connection):
         conn.execute("ALTER TABLE flights ADD COLUMN weather TEXT")
 
 
+def _migrate_011_f8_social(conn: sqlite3.Connection):
+    """F7 extras: friends/contacts, per-flight visibility, group sharing."""
+    if not _column_exists(conn, "flights", "visibility"):
+        conn.execute(
+            "ALTER TABLE flights ADD COLUMN visibility TEXT NOT NULL DEFAULT 'private'")
+    if not _column_exists(conn, "flights", "shared_with_group"):
+        conn.execute("ALTER TABLE flights ADD COLUMN shared_with_group INTEGER")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS friend_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            requester_id INTEGER NOT NULL,
+            addressee_id INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE (requester_id, addressee_id)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS friends (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            friend_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE (user_id, friend_id)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS groups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            owner_id INTEGER,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS group_members (
+            group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+            user_id INTEGER NOT NULL,
+            PRIMARY KEY (group_id, user_id)
+        )
+    """)
+
+
 MIGRATIONS = [
     (2, "flights_owner_id", _migrate_002_flights_owner_id),
     (3, "vehicles_owner_id", _migrate_003_vehicles_owner_id),
@@ -213,6 +256,7 @@ MIGRATIONS = [
     (8, "flight_photos", _migrate_008_flight_photos),
     (9, "sharing", _migrate_009_sharing),
     (10, "f8_domain", _migrate_010_f8_domain),
+    (11, "f8_social", _migrate_011_f8_social),
 ]
 
 
@@ -1772,6 +1816,264 @@ def set_flight_weather(filename: str, weather: dict) -> bool:
         cur = conn.execute("UPDATE flights SET weather = ? WHERE filename = ?",
                            (json.dumps(weather), filename))
         return cur.rowcount > 0
+
+
+# --- Contacts / friends (F7 extras) ---
+
+
+def are_friends(a: int, b: int) -> bool:
+    if a == b:
+        return False
+    lo, hi = (a, b) if a < b else (b, a)
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM friends WHERE user_id = ? AND friend_id = ?",
+            (lo, hi)).fetchone()
+    return row is not None
+
+
+def _friend_pair(a: int, b: int) -> tuple[int, int]:
+    return (a, b) if a < b else (b, a)
+
+
+def add_friend(a: int, b: int) -> None:
+    lo, hi = _friend_pair(a, b)
+    with _get_conn() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO friends (user_id, friend_id) VALUES (?, ?)",
+            (lo, hi))
+
+
+def remove_friends(a: int, b: int) -> None:
+    lo, hi = _friend_pair(a, b)
+    with _get_conn() as conn:
+        conn.execute("DELETE FROM friends WHERE user_id = ? AND friend_id = ?",
+                     (lo, hi))
+        conn.execute("DELETE FROM friend_requests WHERE "
+                     "(requester_id = ? AND addressee_id = ?) OR "
+                     "(requester_id = ? AND addressee_id = ?)",
+                     (a, b, b, a))
+
+
+def send_friend_request(requester: int, addressee: int) -> bool:
+    if requester == addressee or are_friends(requester, addressee):
+        return False
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT id FROM friend_requests WHERE requester_id = ? "
+            "AND addressee_id = ?", (requester, addressee)).fetchone()
+        if row:
+            return False
+        try:
+            conn.execute(
+                "INSERT INTO friend_requests (requester_id, addressee_id) "
+                "VALUES (?, ?)", (requester, addressee))
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+
+def get_friend_requests_received(user_id: int) -> list[dict]:
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT fr.id, fr.requester_id AS peer_id, u.username AS peer_name, "
+            "fr.status, fr.created_at FROM friend_requests fr "
+            "JOIN users u ON u.id = fr.requester_id "
+            "WHERE fr.addressee_id = ? AND fr.status = 'pending' ORDER BY fr.id DESC",
+            (user_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_friend_requests_sent(user_id: int) -> list[dict]:
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT fr.id, fr.addressee_id AS peer_id, u.username AS peer_name, "
+            "fr.status, fr.created_at FROM friend_requests fr "
+            "JOIN users u ON u.id = fr.addressee_id "
+            "WHERE fr.requester_id = ? AND fr.status = 'pending' ORDER BY fr.id DESC",
+            (user_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def friend_request_by_id(request_id: int) -> dict | None:
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM friend_requests WHERE id = ?", (request_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def accept_friend_request(request_id: int, user_id: int) -> bool:
+    req = friend_request_by_id(request_id)
+    if not req or req["addressee_id"] != user_id or req["status"] != "pending":
+        return False
+    with _get_conn() as conn:
+        conn.execute("UPDATE friend_requests SET status = 'accepted' WHERE id = ?",
+                     (request_id,))
+    add_friend(req["requester_id"], req["addressee_id"])
+    return True
+
+
+def reject_friend_request(request_id: int, user_id: int) -> bool:
+    req = friend_request_by_id(request_id)
+    if not req or req["addressee_id"] != user_id:
+        return False
+    with _get_conn() as conn:
+        conn.execute("UPDATE friend_requests SET status = 'declined' WHERE id = ?",
+                     (request_id,))
+    return True
+
+
+def friend_ids_of(user_id: int) -> list[int]:
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT user_id, friend_id FROM friends "
+            "WHERE user_id = ? OR friend_id = ?", (user_id, user_id)).fetchall()
+    ids = set()
+    for r in rows:
+        ids.add(r["user_id"])
+        ids.add(r["friend_id"])
+    ids.discard(user_id)
+    return sorted(ids)
+
+
+def get_friends_with_names(user_id: int) -> list[dict]:
+    ids = friend_ids_of(user_id)
+    if not ids:
+        return []
+    marks = ",".join("?" for _ in ids)
+    with _get_conn() as conn:
+        rows = conn.execute(
+            f"SELECT id, username FROM users WHERE id IN ({marks}) ORDER BY username",
+            ids).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_feed_flights(user_id: int) -> list[dict]:
+    """Flights visible to this user in the community feed: friends' flights with
+    visibility 'public' or 'contacts', plus flights shared to groups the user
+    belongs to."""
+    fids = friend_ids_of(user_id)
+    marks = ",".join("?" for _ in (fids or [0]))
+    with _get_conn() as conn:
+        gids = [r["group_id"] for r in conn.execute(
+            "SELECT group_id FROM group_members WHERE user_id = ?", (user_id,)).fetchall()]
+        gmarks = ",".join("?" for _ in (gids or [0]))
+        rows = conn.execute(
+            f"""
+            SELECT * FROM flights
+            WHERE NULLIF(visibility, '') IS NOT NULL
+              AND (
+                (visibility IN ('public','contacts') AND owner_id IN ({marks}))
+                 OR (shared_with_group IN ({gmarks}))
+              )
+            ORDER BY date DESC, start_time DESC
+            """, list(fids or [1]) + (gids or [0])).fetchall()
+    out = [_row_to_dict(r) for r in rows]
+    usernames = _username_map()
+    for d in out:
+        d["owner_username"] = usernames.get(d.get("owner_id"))
+    return out
+
+
+def set_flight_visibility(filename: str, visibility: str, owner_id: int | None = None,
+                          is_admin: bool = False) -> bool:
+    if visibility not in ("public", "contacts", "private"):
+        return False
+    with _get_conn() as conn:
+        if is_admin or owner_id is None:
+            cur = conn.execute("UPDATE flights SET visibility = ? WHERE filename = ?",
+                               (visibility, filename))
+        else:
+            cur = conn.execute(
+                "UPDATE flights SET visibility = ? WHERE filename = ? AND owner_id = ?",
+                (visibility, filename, owner_id))
+        return cur.rowcount > 0
+
+
+def set_flight_shared_group(filename: str, group_id: int | None, owner_id: int | None = None,
+                            is_admin: bool = False) -> bool:
+    with _get_conn() as conn:
+        if is_admin or owner_id is None:
+            cur = conn.execute("UPDATE flights SET shared_with_group = ? WHERE filename = ?",
+                               (group_id, filename))
+        else:
+            cur = conn.execute(
+                "UPDATE flights SET shared_with_group = ? WHERE filename = ? AND owner_id = ?",
+                (group_id, filename, owner_id))
+        return cur.rowcount > 0
+
+
+# --- Groups / teams (F7 extras) ---
+
+
+def create_group(name: str, owner_id: int | None = None) -> dict | None:
+    with _get_conn() as conn:
+        try:
+            cur = conn.execute("INSERT INTO groups (name, owner_id) VALUES (?, ?)",
+                               (name, owner_id))
+            gid = int(cur.lastrowid)
+        except sqlite3.IntegrityError:
+            return None
+    return get_group(gid)
+
+
+def get_group(group_id: int) -> dict | None:
+    with _get_conn() as conn:
+        row = conn.execute("SELECT * FROM groups WHERE id = ?", (group_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_all_groups() -> list[dict]:
+    with _get_conn() as conn:
+        rows = conn.execute("SELECT * FROM groups ORDER BY id ASC").fetchall()
+    return [dict(r) for r in rows]
+
+
+def update_group_name(group_id: int, name: str) -> bool:
+    with _get_conn() as conn:
+        cur = conn.execute("UPDATE groups SET name = ? WHERE id = ?", (name, group_id))
+        return cur.rowcount > 0
+
+
+def delete_group(group_id: int) -> bool:
+    with _get_conn() as conn:
+        conn.execute("UPDATE flights SET shared_with_group = NULL WHERE shared_with_group = ?",
+                     (group_id,))
+        cur = conn.execute("DELETE FROM groups WHERE id = ?", (group_id,))
+        return cur.rowcount > 0
+
+
+def add_group_member(group_id: int, user_id: int) -> bool:
+    with _get_conn() as conn:
+        try:
+            conn.execute("INSERT OR IGNORE INTO group_members (group_id, user_id) "
+                         "VALUES (?, ?)", (group_id, user_id))
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+
+def remove_group_member(group_id: int, user_id: int) -> bool:
+    with _get_conn() as conn:
+        cur = conn.execute("DELETE FROM group_members WHERE group_id = ? AND user_id = ?",
+                           (group_id, user_id))
+        return cur.rowcount > 0
+
+
+def get_group_members(group_id: int) -> list[dict]:
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT user_id, username FROM group_members gm JOIN users u ON u.id = gm.user_id "
+            "WHERE gm.group_id = ? ORDER BY u.id", (group_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def groups_of_user(user_id: int) -> list[dict]:
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT g.* FROM groups g JOIN group_members gm ON gm.group_id = g.id "
+            "WHERE gm.user_id = ? ORDER BY g.id", (user_id,)).fetchall()
+    return [dict(r) for r in rows]
 
 
 init_db()

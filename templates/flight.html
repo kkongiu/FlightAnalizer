@@ -34,6 +34,21 @@
             <button class="btn-primary" id="rescanNavBtn" style="font-size:0.7rem;padding:0.25rem 0.6rem;">Rescan Nav</button>
             <button class="btn-primary" id="weatherBtn" style="font-size:0.7rem;padding:0.25rem 0.6rem;">☀️ Weather</button>
             <button class="btn-primary" id="shareBtn" style="font-size:0.7rem;padding:0.25rem 0.6rem;">🔗 Share</button>
+            <label style="font-size:0.7rem;color:var(--text-secondary);font-weight:500;display:flex;align-items:center;gap:0.3rem;">Visibility:
+                <select id="visibilitySelect" style="padding:0.2rem 0.4rem;border:1px solid rgba(128,128,128,0.2);border-radius:4px;background:var(--bg);color:var(--text);font-size:0.7rem;">
+                    <option value="private" {% if flight.visibility == 'private' %}selected{% endif %}>Private</option>
+                    <option value="contacts" {% if flight.visibility == 'contacts' %}selected{% endif %}>Contacts</option>
+                    <option value="public" {% if flight.visibility == 'public' %}selected{% endif %}>Public</option>
+                </select>
+            </label>
+            <label id="groupShareWrap" style="font-size:0.7rem;color:var(--text-secondary);font-weight:500;display:flex;align-items:center;gap:0.3rem;{% if not groups %}display:none;{% endif %}">Group:
+                <select id="groupShareSelect" style="padding:0.2rem 0.4rem;border:1px solid rgba(128,128,128,0.2);border-radius:4px;background:var(--bg);color:var(--text);font-size:0.7rem;">
+                    <option value="">— None —</option>
+                    {% for g in groups %}
+                    <option value="{{ g.id }}" {% if flight.shared_with_group == g.id %}selected{% endif %}>{{ g.name }}</option>
+                    {% endfor %}
+                </select>
+            </label>
             <button class="btn-danger" id="deleteBtn" style="font-size:0.7rem;padding:0.25rem 0.6rem;">Delete</button>
         </div>
     </div>
@@ -1510,6 +1525,28 @@ updateChartCursor(0);
             '<p><strong>Temp:</strong> avg ' + d.avg_temp_c + ' °C (min ' + d.min_temp_c + ' / max ' + d.max_temp_c + ')</p>' +
             (d.avg_wind_kmh != null ? '<p><strong>Wind:</strong> avg ' + d.avg_wind_kmh + ' km/h (max ' + d.max_wind_kmh + ')</p>' : '');
     });
+
+    // --- Visibility / group share (F7 extras) ---
+    const visSelect = document.getElementById('visibilitySelect');
+    const grpSelect = document.getElementById('groupShareSelect');
+    if (visSelect) {
+        visSelect.addEventListener('change', async () => {
+            const res = await fetch('/flight/api/flights/' + encodeURIComponent(filename) + '/visibility', {
+                method: 'PUT', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({visibility: visSelect.value})
+            });
+            if (!res.ok) alert('Failed to update visibility');
+        });
+    }
+    if (grpSelect) {
+        grpSelect.addEventListener('change', async () => {
+            const res = await fetch('/flight/api/flights/' + encodeURIComponent(filename) + '/group-share', {
+                method: 'PUT', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({group_id: grpSelect.value === '' ? null : Number(grpSelect.value)})
+            });
+            if (!res.ok) alert('Could not update group share.');
+        });
+    }
 })();
 </script>
 {% endblock %}

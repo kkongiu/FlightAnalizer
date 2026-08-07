@@ -57,7 +57,16 @@ from database import (save_flight, get_all_flights, get_flight, delete_flight,
                       get_maintenance_alerts,
                       create_api_token, get_api_tokens, api_token_user,
                       revoke_api_token,
-                      get_flight_weather, set_flight_weather)
+                      get_flight_weather, set_flight_weather,
+                      get_friends_with_names, get_friend_requests_received,
+                      get_friend_requests_sent, send_friend_request,
+                      friend_request_by_id, accept_friend_request,
+                      reject_friend_request, remove_friends, are_friends,
+                      get_feed_flights, set_flight_visibility,
+                      set_flight_shared_group, create_group, get_all_groups,
+                      get_group, update_group_name, delete_group,
+                      add_group_member, remove_group_member, get_group_members,
+                      groups_of_user)
 import httpx
 import backup
 import mailer
@@ -927,8 +936,10 @@ async def flight_detail(request: Request, filename: str):
     prev_flight = flights[idx + 1]["filename"] if idx is not None and idx + 1 < len(flights) else None
     next_flight = flights[idx - 1]["filename"] if idx is not None and idx - 1 >= 0 else None
     vehicles = get_vehicles(me["user_id"], me["is_admin"])
+    groups = groups_of_user(me["user_id"])
     return templates.TemplateResponse(request, "flight.html", {
-        "flight": flight, "prev": prev_flight, "next": next_flight, "vehicles": vehicles
+        "flight": flight, "prev": prev_flight, "next": next_flight,
+        "vehicles": vehicles, "groups": groups
     })
 
 
@@ -1454,6 +1465,45 @@ async def _fetch_historical_weather(flight: dict) -> dict | None:
             }
     except Exception:
         return None
+
+
+@app.put("/api/flights/{filename:path}/visibility")
+async def api_flight_visibility(filename: str, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    body = await request.json()
+    visibility = str(body.get("visibility", "")).strip()
+    if visibility not in ("public", "contacts", "private"):
+        return JSONResponse({"error": "visibility must be public/contacts/private"},
+                            status_code=400)
+    flight = get_flight(filename, me["user_id"], me["is_admin"])
+    if not flight:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    set_flight_visibility(filename, visibility, me["user_id"], me["is_admin"])
+    _audit(request, "flight_visibility", f"{filename}={visibility}")
+    return {"visibility": visibility}
+
+
+@app.put("/api/flights/{filename:path}/group-share")
+async def api_flight_group_share(filename: str, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    flight = get_flight(filename, me["user_id"], me["is_admin"])
+    if not flight:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    body = await request.json()
+    group_id = body.get("group_id")
+    if group_id is not None:
+        gid = int(group_id)
+        if not get_group(gid):
+            return JSONResponse({"error": "group not found"}, status_code=404)
+    set_flight_shared_group(filename, group_id, me["user_id"], me["is_admin"])
+    _audit(request, "flight_group_share", f"{filename}={group_id}")
+    return {"shared_with_group": group_id}
 
 
 @app.get("/api/flights/{filename:path}")
@@ -2225,6 +2275,18 @@ async def users_page(request: Request):
     return templates.TemplateResponse(request, "users.html", {"users": users})
 
 
+@app.get("/api/users/search")
+async def api_search_users(request: Request, q: str = ""):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    q = q.strip().lower()
+    users = [u for u in get_all_users()
+             if u["id"] != me["user_id"] and (not q or q in u["username"].lower())]
+    return {"users": users[:20]}
+
+
 @app.get("/api/users")
 async def api_list_users(request: Request):
     denied = require_api_auth(request)
@@ -2739,13 +2801,8 @@ async def calendar_page(request: Request):
         return redirect
     me = _current(request)
     flights = get_all_flights(me["user_id"], me["is_admin"])
-    by_month: dict[str, list[dict]] = {}
-    for f in flights:
-        m = (f.get("date") or "unknown")[:7]
-        by_month.setdefault(m, []).append(f)
-    months = sorted(by_month.keys(), reverse=True)
     return templates.TemplateResponse(request, "calendar.html", {
-        "months": months, "by_month": by_month,
+        "flights": flights,
     })
 
 
@@ -2848,6 +2905,215 @@ async def _fetch_historical_weather(flight: dict) -> dict | None:
             }
     except Exception:
         return None
+
+
+# --- F7 extras: contacts, feed, groups ---
+
+
+@app.get("/api/contacts")
+async def api_contacts(request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    return {
+        "received": get_friend_requests_received(me["user_id"]),
+        "sent": get_friend_requests_sent(me["user_id"]),
+        "friends": get_friends_with_names(me["user_id"]),
+    }
+
+
+@app.post("/api/contacts")
+async def api_contact_request(request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    body = await request.json()
+    peer = int(body.get("user_id"))
+    if peer == me["user_id"]:
+        return JSONResponse({"error": "cannot add yourself"}, status_code=400)
+    if not get_user_by_id(peer):
+        return JSONResponse({"error": "user not found"}, status_code=404)
+    if not send_friend_request(me["user_id"], peer):
+        return JSONResponse({"error": "request already sent or already friends"},
+                            status_code=409)
+    _audit(request, "contact_request", f"to={peer}")
+    return {"requested": True}
+
+
+@app.post("/api/contacts/{request_id}/accept")
+async def api_contact_accept(request_id: int, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    if not accept_friend_request(request_id, me["user_id"]):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    _audit(request, "contact_accept", f"request={request_id}")
+    return {"accepted": True}
+
+
+@app.post("/api/contacts/{request_id}/decline")
+async def api_contact_decline(request_id: int, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    if not reject_friend_request(request_id, me["user_id"]):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    _audit(request, "contact_decline", f"request={request_id}")
+    return {"declined": True}
+
+
+@app.delete("/api/contacts/{peer_id}")
+async def api_contact_remove(peer_id: int, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    remove_friends(me["user_id"], peer_id)
+    _audit(request, "contact_remove", f"peer={peer_id}")
+    return {"removed": True}
+
+
+@app.get("/api/feed")
+async def api_feed(request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    return {"flights": get_feed_flights(me["user_id"])}
+
+
+@app.get("/contacts", response_class=HTMLResponse)
+async def contacts_page(request: Request):
+    redirect = require_auth(request)
+    if redirect:
+        return redirect
+    return templates.TemplateResponse(request, "contacts.html", {})
+
+
+@app.get("/feed", response_class=HTMLResponse)
+async def feed_page(request: Request):
+    redirect = require_auth(request)
+    if redirect:
+        return redirect
+    me = _current(request)
+    flights = get_feed_flights(me["user_id"])
+    return templates.TemplateResponse(request, "feed.html", {"flights": flights})
+
+
+# --- Groups / teams ---
+
+
+@app.get("/api/groups")
+async def api_groups(request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    if me["is_admin"]:
+        groups = get_all_groups()
+    else:
+        groups = groups_of_user(me["user_id"])
+    out = []
+    for g in groups:
+        out.append({**g, "members": get_group_members(g["id"])})
+    return {"groups": out}
+
+
+@app.post("/api/groups")
+async def api_group_create(request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    if not me["is_admin"]:
+        return JSONResponse({"error": "admin only"}, status_code=403)
+    body = await request.json()
+    name = str(body.get("name", "")).strip()
+    if not name:
+        return JSONResponse({"error": "name is required"}, status_code=400)
+    g = create_group(name, me["user_id"])
+    _audit(request, "group_create", name)
+    return {"group": g}
+
+
+@app.put("/api/groups/{group_id}")
+async def api_group_update(group_id: int, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    if not me["is_admin"]:
+        return JSONResponse({"error": "admin only"}, status_code=403)
+    body = await request.json()
+    name = str(body.get("name", "")).strip()
+    if not update_group_name(group_id, name):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    _audit(request, "group_update", f"id={group_id}")
+    return {"updated": True}
+
+
+@app.delete("/api/groups/{group_id}")
+async def api_group_delete(group_id: int, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    if not me["is_admin"]:
+        return JSONResponse({"error": "admin only"}, status_code=403)
+    if not delete_group(group_id):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    _audit(request, "group_delete", f"id={group_id}")
+    return {"deleted": True}
+
+
+@app.post("/api/groups/{group_id}/members")
+async def api_group_member_add(group_id: int, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    if not me["is_admin"]:
+        return JSONResponse({"error": "admin only"}, status_code=403)
+    body = await request.json()
+    user_id = int(body.get("user_id"))
+    add_group_member(group_id, user_id)
+    _audit(request, "group_member_add", f"group={group_id} user={user_id}")
+    return {"added": True}
+
+
+@app.delete("/api/groups/{group_id}/members/{user_id}")
+async def api_group_member_remove(group_id: int, user_id: int, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    if not me["is_admin"]:
+        return JSONResponse({"error": "admin only"}, status_code=403)
+    remove_group_member(group_id, user_id)
+    _audit(request, "group_member_remove", f"group={group_id} user={user_id}")
+    return {"removed": True}
+
+
+@app.get("/groups", response_class=HTMLResponse)
+async def groups_page(request: Request):
+    redirect = require_auth(request)
+    if redirect:
+        return redirect
+    me = _current(request)
+    if me["is_admin"]:
+        groups = get_all_groups()
+        users = get_all_users()
+    else:
+        groups = groups_of_user(me["user_id"])
+        users = []
+    out = [{**g, "members": get_group_members(g["id"])} for g in groups]
+    return templates.TemplateResponse(request, "groups.html", {
+        "groups": out, "is_admin": me["is_admin"], "users": users,
+    })
 
 
 # --- Public sharing (F7): view, social, og, gpx, comments/likes ---

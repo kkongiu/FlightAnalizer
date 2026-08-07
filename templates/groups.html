@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}Groups - Pocket Log Analyzer{% endblock %}
+{% block content %}
+<div class="dashboard">
+    <div class="header-bar">
+        <h2>Teams &amp; Groups</h2>
+        <div class="header-actions">
+            {% if is_admin %}
+            <button class="btn-primary" id="newGroupBtn">+ New Group</button>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if not groups %}
+    <div class="empty-state">
+        <div class="empty-icon">👥</div>
+        <p>No groups yet.</p>
+        {% if is_admin %}
+        <p style="font-size:0.75rem;color:var(--text-secondary);">Admins can create groups and add members to share flights with a whole team.</p>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="flights-grid">
+        {% for g in groups %}
+        <div class="flight-card" data-id="{{ g.id }}">
+            <div class="flight-card-header">
+                <span>{{ g.name }}</span>
+                <div>
+                    {% if is_admin %}
+                    <button class="btn-primary" data-action="rename" style="font-size:0.65rem;padding:0.15rem 0.5rem;background:var(--bg);color:var(--text);box-shadow:none;border:1px solid rgba(128,128,128,0.2);">✎</button>
+                    <button class="btn-danger" data-action="delete" style="font-size:0.65rem;padding:0.15rem 0.5rem;">🗑</button>
+                    {% endif %}
+                </div>
+            </div>
+            <div style="font-size:0.8rem;color:var(--text-secondary);">{{ g.members|length }} member(s)</div>
+            <ul style="margin:0.5rem 0 0.5rem 1rem;font-size:0.75rem;color:var(--text);">
+                {% for m in g.members %}
+                <li>{{ m.username }}</li>
+                {% endfor %}
+            </ul>
+            {% if is_admin %}
+            <button class="btn-primary" data-action="manage" style="font-size:0.65rem;padding:0.15rem 0.5rem;">Manage members</button>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div id="groupModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:100;align-items:center;justify-content:center;">
+    <div class="card" style="max-width:420px;width:100%;padding:1rem;">
+        <h4 id="groupModalTitle" style="font-size:0.85rem;font-weight:700;margin-bottom:0.75rem;">New Group</h4>
+        <input type="text" id="groupNameInput" placeholder="Group name" style="width:100%;padding:0.45rem 0.6rem;border:1px solid rgba(128,128,128,0.3);border-radius:6px;background:var(--bg);color:var(--text);margin-bottom:0.75rem;">
+        <div id="memberPick" style="margin-bottom:0.75rem;max-height:200px;overflow:auto;">
+            {% for u in users %}
+            <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.75rem;padding:0.2rem 0;">
+                <input type="checkbox" class="grp-user" value="{{ u.id }}"> {{ u.username }}
+            </label>
+            {% endfor %}
+        </div>
+        <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
+            <button class="btn-primary" id="groupCancelBtn" style="background:var(--bg);color:var(--text);box-shadow:none;border:1px solid rgba(128,128,128,0.2);">Cancel</button>
+            <button class="btn-primary" id="groupSaveBtn">Save</button>
+        </div>
+    </div>
+</div>
+<script>
+(function(){
+    const isAdmin = {{ 'true' if is_admin else 'false' }};
+    const modal = document.getElementById('groupModal');
+    const nameInput = document.getElementById('groupNameInput');
+    const title = document.getElementById('groupModalTitle');
+    let mode = 'create';
+    let currentGroupId = null;
+
+    function openModal(titleText, name, selected) {
+        title.textContent = titleText;
+        nameInput.value = name || '';
+        document.querySelectorAll('.grp-user').forEach(cb => {
+            cb.checked = selected && selected.includes(Number(cb.value));
+        });
+        document.getElementById('memberPick').style.display = 'block';
+        modal.style.display = 'flex';
+    }
+    function closeModal() { modal.style.display = 'none'; }
+
+    document.getElementById('newGroupBtn').addEventListener('click', () => {
+        mode = 'create'; currentGroupId = null;
+        openModal('New Group', '');
+    });
+
+    document.querySelectorAll('[data-action]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const card = btn.closest('.flight-card');
+            const id = Number(card.dataset.id);
+            const action = btn.dataset.action;
+            if (action === 'rename') {
+                mode = 'rename'; currentGroupId = id;
+                const name = card.querySelector('.flight-card-header span').textContent;
+                document.getElementById('memberPick').style.display = 'none';
+                openModal('Rename Group', name);
+            } else if (action === 'delete') {
+                if (!confirm('Delete this group?')) return;
+                fetch('/flight/api/groups/' + id, {method: 'DELETE'}).then(r => { if (r.ok) location.reload(); });
+            } else if (action === 'manage') {
+                mode = 'manage'; currentGroupId = id;
+                const members = Array.from(card.querySelectorAll('ul li')).map(li => li.textContent.trim());
+                openModal('Manage Members', card.querySelector('.flight-card-header span').textContent, members);
+            }
+        });
+    });
+
+    document.getElementById('groupCancelBtn').addEventListener('click', closeModal);
+    document.getElementById('groupSaveBtn').addEventListener('click', async () => {
+        const name = nameInput.value.trim();
+        const members = Array.from(document.querySelectorAll('.grp-user:checked')).map(cb => Number(cb.value));
+        if (mode === 'create') {
+            if (!name) return;
+            const res = await fetch('/flight/api/groups', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name})
+            });
+            if (!res.ok) return;
+            const g = (await res.json()).group;
+            for (const uid of members) {
+                await fetch('/flight/api/groups/' + g.id + '/members', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({user_id: uid})
+                });
+            }
+        } else if (mode === 'rename') {
+            await fetch('/flight/api/groups/' + currentGroupId, {
+                method: 'PUT', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name})
+            });
+        } else if (mode === 'manage') {
+            const existing = new Set(Array.from(document.querySelectorAll('.grp-user:checked')).map(cb => Number(cb.value)));
+            const current = Array.from(document.querySelectorAll('.grp-user')).map(cb => Number(cb.value)).filter(v => v);
+            // Reconcile: add newly-checked, remove newly-unchecked
+            // We simply rebuild membership from current selection.
+            const curMembers = await (await fetch('/flight/api/groups')).json();
+            const group = curMembers.groups.find(g => g.id === currentGroupId);
+            const have = new Set(group ? group.members.map(m => m.user_id) : []);
+            const want = new Set(members);
+            for (const uid of want) {
+                if (!have.has(uid)) {
+                    await fetch('/flight/api/groups/' + currentGroupId + '/members', {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({user_id: uid})
+                    });
+                }
+            }
+            for (const uid of have) {
+                if (!want.has(uid)) {
+                    await fetch('/flight/api/groups/' + currentGroupId + '/members/' + uid, {method: 'DELETE'});
+                }
+            }
+        }
+        closeModal();
+        location.reload();
+    });
+})();
+</script>
+{% endblock %}
