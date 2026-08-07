@@ -236,6 +236,7 @@ app.add_middleware(
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 templates.env.filters["dict2str"] = dict2str
 templates.env.filters["fmt_duration"] = fmt_duration
+templates.env.filters["slugify"] = lambda s: re.sub(r"[^a-z0-9]+", "-", (s or "").lower()).strip("-")
 templates.env.globals["now"] = datetime.now
 LOG_DIR = Path(os.environ.get("POCKET_LOG_DIR", Path(__file__).parent))
 PHOTO_DIR = database.DATA_DIR / "flight_photos"
@@ -1912,13 +1913,15 @@ async def api_rescan_nav(filename: str, request: Request):
 
 _QUICKSTART = [
     {"title": "Import your first log",
-     "text": "Upload a CSV/GPX/blackbox log from the Dashboard or the Flights page. The analyzer parses telemetry automatically and computes stats, tracks and events."},
+     "text": "Upload a CSV/GPX/blackbox log from the Dashboard or the Flights page. The analyzer parses telemetry automatically and computes stats, tracks and events. The supported source is the RadioMaster Pocket CSV produced by the EdgeTX SD Logs special function."},
     {"title": "Assign a vehicle",
-     "text": "Create a vehicle under Vehicles, then assign each flight to it (editing the flight). Useful for per-vehicle stats and battery health."},
+     "text": "Create a vehicle under Vehicles, then assign each flight to it (editing the flight). Useful for per-vehicle stats, flight hours and battery health."},
     {"title": "Review flight stats & events",
-     "text": "Open any flight for the map (playable timeline), metrics, detected events, tags/notes and photo gallery."},
-    {"title": "Share a flight",
-     "text": "On a flight, press Share to create a public link, copy it, toggle on/off or revoke. The link shows a public page with social buttons, GPX download and comments/likes."},
+     "text": "Open any flight for the map (playable timeline), metrics, detected events, tags/notes, weather and photo gallery."},
+    {"title": "Add contacts and share",
+     "text": "Add other users as contacts, then set a flight's visibility to Contacts or Public to push it into their Feed. Or press Share to create a public link with social buttons, GPX download and comments/likes."},
+    {"title": "Keep vehicles maintained",
+     "text": "Set part intervals (propellers, motors, battery) on each vehicle; the dashboard alerts you when flight hours reach a deadline."},
     {"title": "Use the tools",
      "text": "Compare flights, generate an INAV mission, render a PDF report, or chat with other users from Messages."},
 ]
@@ -1926,44 +1929,207 @@ _QUICKSTART = [
 
 def _help_sections() -> list[dict]:
     return [
-        {"title": "Flights & logs", "summary": "Upload, parse and inspect FPV telemetry logs.",
+        {"icon": "📻", "title": "Logging on the RadioMaster (EdgeTX)",
+         "cat": "Setup",
+         "summary": "How the log CSV is produced on your radio, step by step.",
+         "link": "/flight/flights",
          "steps": [
-             "Supported formats: CSV (Betaflight/INAV-style), CLI/Blackbox where available.",
-             "Rescan Nav in a flight re-parses the log and refines the track/events.",
-             "Tags let you group flights; vehicle assignment links a flight to a drone/model.",
+             "Make sure telemetry reaches the radio: RSSI, LQ, GPS, altitude, speed and attitude (Pitch/Roll/Yaw) must appear on the model page.",
+             "ExpressLRS/CRSF: in Betaflight enable Telemetry under the Receiver tab; GPS and attitude come from the flight controller through the receiver.",
+             "On the radio open MDL → Telemetry → Discover new sensors (restart the radio if sensors are missing).",
+             "Open MDL → Special Functions, press + and add: Trigger = Arm switch (recommended), ON (always), or TELE (when a receiver is connected).",
+             "Function = SD Logs, Value = 0.5 s (~2 Hz, matches the attitude sensors), Enable = ON.",
+             "Logs are written to the SD card under LOGS/ with a name like <model>-<date>-<time>.csv.",
+         ],
+         "note": "EdgeTX stops logging when the SD card has less than 50 MB free. Unwanted sensors can be excluded in the Telemetry page (Edit sensor → uncheck Logs). With ExpressLRS a higher telemetry ratio produces denser logs; changes apply after a power cycle.",
+         "glossary": [
+             {"term": "Trigger", "meaning": "What starts logging: the Arm switch (only when armed), ON (always), or TELE (when a receiver is connected)."},
+             {"term": "SD Logs", "meaning": "The EdgeTX special function that writes telemetry to the SD card."},
+             {"term": "Value 0.5s", "meaning": "Logging interval: a sample every 0.5 s (~2 Hz)."},
          ]},
-        {"title": "Vehicles & maintenance", "summary": "Keep a per-drone history and health overview.",
+        {"icon": "✈️", "title": "Flights & logs",
+         "cat": "Flights & analysis",
+         "summary": "Upload, parse and inspect FPV telemetry logs.",
+         "link": "/flight/flights",
          "steps": [
-             "Each vehicle tracks flight count, total distance, flight hours and top metrics.",
-             "Battery health charts show voltage sag and mAh consumption over time.",
-             "Assign every flight to a vehicle so stats stay meaningful.",
+             "Copy the CSV from the radio's SD card (via USB mass storage) and import it with Import CSV on the Dashboard or Flights page, or use Scan Folder to import everything at once.",
+             "GPX files are also supported (no battery/link telemetry, but track, altitude and speed).",
+             "Open a flight for the interactive map with a playable timeline and the telemetry charts.",
+             "Rescan Nav re-parses the log and refines the track and detected events.",
+             "Tags group flights, notes add context, and vehicle assignment links a flight to a drone/model.",
+             "Photos: upload a gallery per flight, pick a cover, and see thumbnails in the lists.",
+             "Weather: the ☀️ button fetches historical temperature and wind for the flight day.",
          ]},
-        {"title": "Compare & mission", "summary": "Analysis helpers.",
+        {"icon": "📈", "title": "Flight page: charts & stats",
+         "cat": "Flights & analysis",
+         "summary": "Every chart on the flight page, what it plots and why it matters.",
+         "link": "/flight/flights",
          "steps": [
-             "Compare: overlay two flights on the same map for side-by-side analysis.",
-             "Mission: build an INAV mission from the current flight track or parameters.",
+             "All line charts share a cursor that follows the map playback, so you can watch time evolve together.",
+             "Hover a chart to read exact values; drag or use the buttons to play back the flight on the map.",
+         ],
+         "glossary": [
+             {"term": "Altitude Profile", "meaning": "Altitude in metres over time. Compare with your planned profile to check smoothness."},
+             {"term": "Ground Speed", "meaning": "Speed over ground in km/h. Sudden drops can indicate wind, stall or flight-mode changes."},
+             {"term": "RSSI Signal Strength", "meaning": "1RSS and 2RSS in dB (the two receivers). Lower (more negative) is weaker; below about -80 dB you may lose the link."},
+             {"term": "Battery Voltage", "meaning": "RxBt voltage in volts over time. Watch the sag under throttle and the recovery in low-throttle segments."},
+             {"term": "Vertical Speed", "meaning": "Vertical velocity in m/s. Positive = climbing, negative = descending."},
+             {"term": "Heading / Compass", "meaning": "Aircraft heading in degrees."},
+             {"term": "Load Factor G", "meaning": "Estimated G-force from the bank angle (1/cos roll). Useful to check how hard a manoeuvre was."},
+             {"term": "Link Quality", "meaning": "SNR (RSNR/TSNR in dB) and link quality (RQly/TQly in %). Drops here precede signal loss."},
+             {"term": "Current Draw", "meaning": "Battery current in amps. Spikes show high-throttle moments."},
+             {"term": "Battery Capacity", "meaning": "Capa in mAh and battery percentage over time; the curve shows consumption and remaining charge."},
+             {"term": "Transmitter Battery", "meaning": "Voltage of the transmitter's own battery."},
+             {"term": "Throttle vs Current", "meaning": "Scatter plot of throttle position against battery current — engine/ESC efficiency."},
+             {"term": "Stick Response", "meaning": "Scatter of aileron→roll and elevator→pitch — how the model follows your inputs."},
+             {"term": "Navigation Controls & Attitude", "meaning": "RC inputs (Rud/Ele/Thr/Ail) on one axis and angle (Pitch/Roll/Yaw) on the other."},
          ]},
-        {"title": "Report & export", "summary": "Summarise and download your data.",
+        {"icon": "🚨", "title": "Events & warnings",
+         "cat": "Flights & analysis",
+         "summary": "What the colored badges and markers on the track mean.",
+         "link": "/flight/flights",
          "steps": [
-             "Report renders a printable summary (single-flight or overall).",
-             "Export GPX/KML per flight and CSV of aggregated data from the tools.",
+             "Click a colored badge below the map to jump the timeline to that event; the detail panel shows time, position, telemetry and more.",
+             "The flight-mode strip along the timeline is colored by flight mode (acro, angle, RTH, land, failsafe...).",
+             "Critical-events checkboxes highlight track points that cross your thresholds (low signal, low SNR, low LQ, high speed) and count the 'peaks'.",
+         ],
+         "glossary": [
+             {"term": "✈ green · takeoff", "meaning": "Start of flight, first takeoff detection."},
+             {"term": "✈ red · landing", "meaning": "Landing detection near the ground."},
+             {"term": "⚠ red · signal_loss", "meaning": "Radio link lost or critically weak."},
+             {"term": "⇄ blue · mode_change", "meaning": "The flight mode changed (e.g. acro → RTH)."},
+             {"term": "🔄 pink · acro", "meaning": "Acrobatic manoeuvre detected: a loop or flip/roll, with duration and peak rotation."},
+             {"term": "💥 dark red · incident", "meaning": "Possible crash: a fast descent ending near the ground, or a GPS stop / failsafe."},
+             {"term": "● public badge", "meaning": "In the feed, marks a flight shared publicly (visible to all contacts)."},
          ]},
-        {"title": "Messages & notifications", "summary": "Private messaging between users.",
-         "steps": [
-             "Send private messages from Messages, with unread badges.",
-             "New-message email notifications can be toggled in Account preferences.",
+        {"icon": "🏷️", "title": "Flags & indicators",
+         "cat": "Flights & analysis",
+         "summary": "The colored dots and labels you'll meet across the app and what they tell you.",
+         "link": "/flight/vehicles",
+         "glossary": [
+             {"term": "Vehicle maintenance dot", "meaning": "Green = OK, amber = DUE (within 2 flight-hours of the interval), red = OVERDUE, no label = no interval set."},
+             {"term": "Share link dot", "meaning": "Green next to a share link = enabled; red = revoked or disabled."},
+             {"term": "Public indicator", "meaning": "Green ● on a feed card = the flight is visible to all contacts."},
+             {"term": "Unread badge", "meaning": "Blue number on Messages in the top bar = unread conversations; 99+ when large."},
+             {"term": "DEFAULT badge (vehicle)", "meaning": "Green label: this vehicle is assigned automatically to new flights without one."},
+             {"term": "Role badges (Users)", "meaning": "Purple Admin / gray Indipendente; status badges show active, pending or disabled."},
+             {"term": "Cover tag", "meaning": "Marks the photo used as the flight's cover in lists and previews."},
+             {"term": "Owner column (admin)", "meaning": "In Flights, shows who owns each flight; admins can filter by owner."},
+             {"term": "Flight mode colors", "meaning": "The strip color per mode: e.g. acro pink, RTH blue, land red, failsafe brown."},
          ]},
-        {"title": "Sharing & social", "summary": "Public pages and community feedback.",
+        {"icon": "📊", "title": "Dashboard & stats",
+         "cat": "Overview",
+         "summary": "What every dashboard card and chart measures.",
+         "link": "/flight/",
          "steps": [
-             "Create a public share link per flight; the owner can revoke anytime.",
-             "Shared pages include social share buttons, og:image preview and GPX download.",
-             "Anyone with a link can like and comment on a shared flight.",
+             "Total Flights, Total Distance and Total Duration are the headline totals for your account.",
+             "Records are your personal bests (distance, altitude, speed, duration, max home distance, glide ratio); click one to open that flight.",
+             "Flights per Day and Distance per Week show your activity trend.",
+             "Battery Health plots Start/End/Min voltage of every flight; Battery Degradation filters the same data by vehicle.",
+             "Recent Flights and the daily/weekly/monthly summary give a quick tabular overview.",
+         ],
+         "glossary": [
+             {"term": "Max Home Dist", "meaning": "Furthest distance from the home point reached during the flight."},
+             {"term": "Glide Ratio", "meaning": "Horizontal distance travelled per metre of altitude lost (horizontal / altitude drop)."},
+             {"term": "Efficiency", "meaning": "Kilometres flown per 1000 mAh of battery consumed (km/k)."},
+             {"term": "Vibration Score", "meaning": "RMS of pitch+roll variance — an estimate of airframe vibration level."},
+             {"term": "Max G / Avg G", "meaning": "Load factor estimated from bank angle, capped at 10."},
          ]},
-        {"title": "Privacy & account", "summary": "Control your data.",
+        {"icon": "📅", "title": "Calendar & timeline",
+         "cat": "Overview",
+         "summary": "A month grid of your activity.",
+         "link": "/flight/calendar",
          "steps": [
-             "Export a copy of your data (GDPR art. 20).",
-             "Delete your account (self-service; shows a summary of affected data).",
-             "Admin can read the audit log and manage users/conversations.",
+             "Each day cell shows an ✈️ icon per flight; the number in the day header is the flight count.",
+             "Click an icon to open that flight; use ‹ › and Today to navigate months.",
+             "Export CSV downloads your whole flight list as a spreadsheet.",
+         ]},
+        {"icon": "🛠️", "title": "Vehicles & maintenance",
+         "cat": "Fleet & maintenance",
+         "summary": "Keep a per-drone history, flight hours and maintenance schedule.",
+         "link": "/flight/vehicles",
+         "steps": [
+             "Create vehicles with a type (drone, fixed-wing, heli, glider, other), photo and an optional DEFAULT role.",
+             "Each vehicle tracks flight count, total distance, flight hours and best stats from its assigned flights.",
+             "Add maintenance items per part: name, interval in flight-hours, last service hour and notes.",
+             "The alerts box lists parts that are DUE (≤ 2 h left) or OVERDUE; press Service now to record a service at the current flight hours.",
+             "Use Apply default vehicle to assign the default model to every flight without a vehicle.",
+         ],
+         "note": "Maintenance alerts are also useful before a flight session: check the Vehicles page for anything OVERDUE before you arm.",
+         "glossary": [
+             {"term": "Flight hours", "meaning": "Total duration of all flights assigned to the vehicle, in hours."},
+             {"term": "Interval", "meaning": "How many flight-hours a part may run before service (e.g. 50 h for motors)."},
+             {"term": "Last service", "meaning": "The flight-hour value at which the part was last serviced."},
+             {"term": "DUE / OVERDUE", "meaning": "DUE = within 2 h of the interval; OVERDUE = past the interval."},
+         ]},
+        {"icon": "⚖️", "title": "Compare & mission",
+         "cat": "Tools",
+         "summary": "Analysis helpers: side-by-side tracks and INAV mission building.",
+         "link": "/flight/compare",
+         "steps": [
+             "Compare: select two or more flights and press Compare — the map overlays their tracks in different colors with a legend and a stats table.",
+             "Mission: build an INAV waypoint mission from a flight's GPS track or from scratch by clicking the map.",
+             "Mission options: altitude mode (fixed/track/offset), cruise speed, final action (RTH/LAND/none), per-waypoint altitude/speed, undo and XML preview.",
+             "Export the mission as a .mission file to open in INAV Configurator or mwp.",
+         ]},
+        {"icon": "📄", "title": "Report & export",
+         "cat": "Tools",
+         "summary": "Printable summaries and downloadable data.",
+         "link": "/flight/report",
+         "steps": [
+             "Report renders a printable page (totals, fleet, records, monthly summary, full flight table); use Print/PDF in the browser.",
+             "Export GPX or KML for a single flight from its page; the aggregated CSV of all flights is on the calendar page.",
+         ]},
+        {"icon": "👥", "title": "Contacts, feed & groups",
+         "cat": "Community",
+         "summary": "Follow other pilots and share within your team.",
+         "link": "/flight/contacts",
+         "steps": [
+             "Contacts: send a friend request by username; the other pilot accepts or declines on their Contacts page.",
+             "Feed lists flights shared by your contacts (visibility Contacts or Public) plus flights shared to your groups.",
+             "Set a flight's visibility on the flight page: Private (only you), Contacts (your friends), Public (all your contacts + feed marker).",
+             "Groups (admin): create a team, add members, then share a flight to the whole group from its page.",
+         ]},
+        {"icon": "💬", "title": "Messages & notifications",
+         "cat": "Community",
+         "summary": "Private messaging between users.",
+         "link": "/flight/messages",
+         "steps": [
+             "Open a conversation from Messages; the unread badge in the top bar shows how many are waiting.",
+             "You can attach a flight to a message so the recipient jumps straight to it (respecting per-user isolation).",
+             "Toggle new-message email notifications in Account preferences.",
+         ]},
+        {"icon": "🔗", "title": "Sharing & social",
+         "cat": "Community",
+         "summary": "Public pages and community feedback.",
+         "link": "/flight/flights",
+         "steps": [
+             "On a flight press Share to create a public link; the owner can enable/disable or revoke it anytime.",
+             "The public page shows the map, stats, GPX download and social share buttons (WhatsApp, Telegram, X, Facebook).",
+             "Anyone with the link can like and comment on the shared flight without logging in.",
+         ]},
+        {"icon": "🔐", "title": "Privacy & account",
+         "cat": "Account & admin",
+         "summary": "Control your data.",
+         "link": "/flight/account",
+         "steps": [
+             "Account: change password, email and preferences; manage your upload API tokens.",
+             "Export a copy of all your data (GDPR art. 20) — flights, photos and messages.",
+             "Delete your account self-service; you'll see a summary of what will be removed first.",
+         ]},
+        {"icon": "🛡️", "title": "Admin & API",
+         "cat": "Account & admin",
+         "summary": "Operations, users and external integrations.",
+         "link": "/flight/users",
+         "steps": [
+             "Users: approve registrations, assign roles (admin/indipendente), set status and disable accounts.",
+             "Audit log records who did what and who viewed what (admin only).",
+             "API tokens allow external scripts to upload logs automatically; create a token under Account and use it with curl.",
+         ],
+         "glossary": [
+             {"term": "X-API-Token header", "meaning": "Send your token in this HTTP header when calling the upload endpoint."},
+             {"term": "Auto-upload", "meaning": "A script on your computer or phone pushes new logs to the server without opening the app."},
+             {"term": "Revoked token", "meaning": "A token set to revoked no longer works; the raw value is shown only once at creation."},
          ]},
     ]
 
@@ -1973,9 +2139,19 @@ async def help_page(request: Request):
     redirect = require_auth(request)
     if redirect:
         return redirect
+    sections = _help_sections()
+    categories: list[dict] = []
+    seen: set[str] = set()
+    for sec in sections:
+        cat = sec.get("cat", "Other")
+        if cat not in seen:
+            seen.add(cat)
+            categories.append({"name": cat, "sections": []})
+        categories[-1]["sections"].append(sec)
     return templates.TemplateResponse(request, "help.html", {
         "quickstart": _QUICKSTART,
-        "sections": _help_sections(),
+        "sections": sections,
+        "categories": categories,
     })
 
 

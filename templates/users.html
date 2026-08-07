@@ -1,111 +1,115 @@
 {% extends "base.html" %}
-{% block title %}Users - Pocket Log Analyzer{% endblock %}
+{% block title %}Users · Pocket Log Analyzer{% endblock %}
 {% block content %}
-<div>
-  <div class="flex items-center justify-between mb-6">
-    <h2 class="text-2xl font-bold text-gray-900 dark:text-gray-100">User Management</h2>
-    <button id="addUserBtn" class="px-4 py-2 bg-sky-600 text-white text-sm font-medium rounded-lg hover:bg-sky-700 transition shadow-sm">+ Add User</button>
+<div class="dashboard">
+  <div class="header-bar">
+    <h2>User Management</h2>
+    <div class="header-actions">
+      <button id="addUserBtn" class="btn-primary">+ Add User</button>
+    </div>
   </div>
 
-  <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-    <table class="w-full text-sm">
-      <thead>
-        <tr class="bg-gray-50 dark:bg-gray-900/50 text-left">
-          <th class="px-4 py-3 font-semibold text-gray-600 dark:text-gray-400">Username</th>
-          <th class="px-4 py-3 font-semibold text-gray-600 dark:text-gray-400">Email</th>
-          <th class="px-4 py-3 font-semibold text-gray-600 dark:text-gray-400">Role</th>
-          <th class="px-4 py-3 font-semibold text-gray-600 dark:text-gray-400">Status</th>
-          <th class="px-4 py-3 font-semibold text-gray-600 dark:text-gray-400">Created</th>
-          <th class="px-4 py-3 font-semibold text-gray-600 dark:text-gray-400">Actions</th>
-        </tr>
-      </thead>
-      <tbody id="usersBody" class="divide-y divide-gray-100 dark:divide-gray-700">
-        {% for u in users %}
-        <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition" data-id="{{ u.id }}" data-username="{{ u.username }}" data-role="{{ u.role }}" data-status="{{ u.status or 'active' }}" data-email="{{ u.email or '' }}" {% if u.username == request.session.get('username') %}data-self="1"{% endif %}>
-          <td class="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{{ u.username }}</td>
-          <td class="px-4 py-3 text-gray-500 dark:text-gray-400">{{ u.email or '—' }}</td>
-          <td class="px-4 py-3">
-            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium {% if u.role == 'admin' %}bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300{% else %}bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300{% endif %}">{{ 'Admin' if u.role == 'admin' else 'Indipendente' }}</span>
-          </td>
-          <td class="px-4 py-3">
-            <span class="status-badge status-{{ u.status or 'active' }} inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium">{{ u.status or 'active' }}</span>
-          </td>
-          <td class="px-4 py-3 text-gray-500 dark:text-gray-400">{{ u.created_at[:10] if u.created_at else '—' }}</td>
-          <td class="px-4 py-3">
-            <div class="flex gap-2">
-              <button class="editUserBtn text-xs px-2.5 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition">Edit</button>
-              <button class="changePwdBtn text-xs px-2.5 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition">Password</button>
-              <button class="resetLinkBtn text-xs px-2.5 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition">Reset Link</button>
-              {% if (u.status or 'active') == 'pending' %}
-              <button class="approveBtn text-xs px-2.5 py-1 rounded bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-200 dark:hover:bg-emerald-900/50 transition">Approve</button>
-              {% endif %}
-              {% if u.username != request.session.get('username') %}
-              <button class="toggleStatusBtn text-xs px-2.5 py-1 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-900/50 transition">{% if (u.status or 'active') == 'disabled' %}Enable{% else %}Disable{% endif %}</button>
-              {% endif %}
-              <button class="deleteUserBtn text-xs px-2.5 py-1 rounded bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50 transition">Delete</button>
-            </div>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div class="card" style="padding:0;overflow:hidden;">
+    <div style="overflow-x:auto;">
+      <table style="width:100%;font-size:0.8rem;border-collapse:collapse;">
+        <thead>
+          <tr style="background:rgba(128,128,128,0.08);text-align:left;">
+            <th style="padding:0.6rem 0.9rem;font-weight:700;color:var(--text-secondary);">Username</th>
+            <th style="padding:0.6rem 0.9rem;font-weight:700;color:var(--text-secondary);">Email</th>
+            <th style="padding:0.6rem 0.9rem;font-weight:700;color:var(--text-secondary);">Role</th>
+            <th style="padding:0.6rem 0.9rem;font-weight:700;color:var(--text-secondary);">Status</th>
+            <th style="padding:0.6rem 0.9rem;font-weight:700;color:var(--text-secondary);">Created</th>
+            <th style="padding:0.6rem 0.9rem;font-weight:700;color:var(--text-secondary);">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="usersBody">
+          {% for u in users %}
+          <tr style="border-bottom:1px solid rgba(128,128,128,0.06);" data-id="{{ u.id }}" data-username="{{ u.username }}" data-role="{{ u.role }}" data-status="{{ u.status or 'active' }}" data-email="{{ u.email or '' }}" {% if u.username == request.session.get('username') %}data-self="1"{% endif %}>
+            <td style="padding:0.5rem 0.9rem;font-weight:600;color:var(--text);">{{ u.username }}</td>
+            <td style="padding:0.5rem 0.9rem;color:var(--text-secondary);">{{ u.email or '—' }}</td>
+            <td style="padding:0.5rem 0.9rem;">
+              <span style="font-size:0.7rem;font-weight:600;padding:0.15rem 0.5rem;border-radius:999px;{% if u.role == 'admin' %}background:rgba(147,51,234,0.12);color:#a855f7;{% else %}background:rgba(128,128,128,0.12);color:var(--text-secondary);{% endif %}">{{ 'Admin' if u.role == 'admin' else 'Indipendente' }}</span>
+            </td>
+            <td style="padding:0.5rem 0.9rem;">
+              <span class="status-badge status-{{ u.status or 'active' }}" style="font-size:0.7rem;font-weight:600;padding:0.15rem 0.5rem;border-radius:999px;">{{ u.status or 'active' }}</span>
+            </td>
+            <td style="padding:0.5rem 0.9rem;color:var(--text-muted);">{{ u.created_at[:10] if u.created_at else '—' }}</td>
+            <td style="padding:0.5rem 0.9rem;">
+              <div style="display:flex;gap:0.35rem;flex-wrap:wrap;">
+                <button class="btn-primary btn-sm editUserBtn" style="background:var(--bg);color:var(--text);box-shadow:none;border:1px solid rgba(128,128,128,0.2);">Edit</button>
+                <button class="btn-primary btn-sm changePwdBtn" style="background:var(--bg);color:var(--text);box-shadow:none;border:1px solid rgba(128,128,128,0.2);">Password</button>
+                <button class="btn-primary btn-sm resetLinkBtn" style="background:var(--bg);color:var(--text);box-shadow:none;border:1px solid rgba(128,128,128,0.2);">Reset Link</button>
+                {% if (u.status or 'active') == 'pending' %}
+                <button class="btn-primary btn-sm approveBtn" style="background:rgba(34,197,94,0.12);color:#22c55e;box-shadow:none;border:1px solid rgba(34,197,94,0.3);">Approve</button>
+                {% endif %}
+                {% if u.username != request.session.get('username') %}
+                <button class="btn-primary btn-sm toggleStatusBtn" style="background:rgba(245,158,11,0.12);color:var(--warning);box-shadow:none;border:1px solid rgba(245,158,11,0.3);">{% if (u.status or 'active') == 'disabled' %}Enable{% else %}Disable{% endif %}</button>
+                {% endif %}
+                <button class="btn-danger btn-sm deleteUserBtn">Delete</button>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
 </div>
 
 <!-- Add/Edit Modal -->
-<div id="userModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 backdrop-blur-sm">
-  <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
-    <h3 id="modalTitle" class="text-lg font-bold text-gray-900 dark:text-gray-100 mb-4">Add User</h3>
+<div id="userModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;backdrop-filter:blur(4px);">
+  <div style="background:var(--surface);border-radius:var(--radius);padding:1.25rem;width:420px;max-width:92vw;box-shadow:var(--shadow-lg);">
+    <h3 id="modalTitle" style="font-size:1rem;font-weight:600;margin-bottom:1rem;color:var(--text);">Add User</h3>
     <form id="userForm" onsubmit="return false;">
       <input type="hidden" id="editUserId">
-      <div class="mb-3">
-        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Username</label>
-        <input id="formUsername" type="text" required class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none">
+      <div style="margin-bottom:0.75rem;">
+        <label style="display:block;font-size:0.7rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.3rem;">Username</label>
+        <input id="formUsername" type="text" required style="width:100%;padding:0.55rem 0.7rem;border:1px solid rgba(128,128,128,0.25);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:0.85rem;">
       </div>
-      <div class="mb-3">
-        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label>
-        <input id="formEmail" type="email" placeholder="optional" class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none">
+      <div style="margin-bottom:0.75rem;">
+        <label style="display:block;font-size:0.7rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.3rem;">Email</label>
+        <input id="formEmail" type="email" placeholder="optional" style="width:100%;padding:0.55rem 0.7rem;border:1px solid rgba(128,128,128,0.25);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:0.85rem;">
       </div>
-      <div id="passwordField" class="mb-3">
-        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Password</label>
-        <input id="formPassword" type="password" class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none">
+      <div id="passwordField" style="margin-bottom:0.75rem;">
+        <label style="display:block;font-size:0.7rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.3rem;">Password</label>
+        <input id="formPassword" type="password" style="width:100%;padding:0.55rem 0.7rem;border:1px solid rgba(128,128,128,0.25);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:0.85rem;">
       </div>
-      <div class="mb-3">
-        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Role</label>
-        <select id="formRole" class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none">
+      <div style="margin-bottom:0.75rem;">
+        <label style="display:block;font-size:0.7rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.3rem;">Role</label>
+        <select id="formRole" style="width:100%;padding:0.55rem 0.7rem;border:1px solid rgba(128,128,128,0.25);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:0.85rem;">
           <option value="viewer">Indipendente</option>
           <option value="admin">Admin</option>
         </select>
       </div>
-      <div id="statusField" class="mb-4">
-        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Status</label>
-        <select id="formStatus" class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none">
+      <div id="statusField" style="margin-bottom:1rem;">
+        <label style="display:block;font-size:0.7rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.3rem;">Status</label>
+        <select id="formStatus" style="width:100%;padding:0.55rem 0.7rem;border:1px solid rgba(128,128,128,0.25);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:0.85rem;">
           <option value="active">Active</option>
           <option value="pending">Pending</option>
           <option value="disabled">Disabled</option>
         </select>
       </div>
-      <div class="flex justify-end gap-3">
-        <button type="button" id="modalCancel" class="px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition">Cancel</button>
-        <button type="submit" id="modalSave" class="px-4 py-2 text-sm font-medium bg-sky-600 text-white rounded-lg hover:bg-sky-700 transition shadow-sm">Save</button>
+      <div style="display:flex;justify-content:flex-end;gap:0.5rem;">
+        <button type="button" id="modalCancel" class="btn-primary" style="background:var(--bg);color:var(--text);box-shadow:none;border:1px solid rgba(128,128,128,0.2);">Cancel</button>
+        <button type="submit" id="modalSave" class="btn-primary">Save</button>
       </div>
     </form>
   </div>
 </div>
 
 <!-- Password Modal -->
-<div id="pwdModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 backdrop-blur-sm">
-  <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
-    <h3 class="text-lg font-bold text-gray-900 dark:text-gray-100 mb-4">Change Password</h3>
+<div id="pwdModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;backdrop-filter:blur(4px);">
+  <div style="background:var(--surface);border-radius:var(--radius);padding:1.25rem;width:420px;max-width:92vw;box-shadow:var(--shadow-lg);">
+    <h3 style="font-size:1rem;font-weight:600;margin-bottom:1rem;color:var(--text);">Change Password</h3>
     <form id="pwdForm" onsubmit="return false;">
       <input type="hidden" id="pwdUserId">
-      <div class="mb-4">
-        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">New Password</label>
-        <input id="pwdNewPassword" type="password" required class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none">
+      <div style="margin-bottom:1rem;">
+        <label style="display:block;font-size:0.7rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.3rem;">New Password</label>
+        <input id="pwdNewPassword" type="password" required style="width:100%;padding:0.55rem 0.7rem;border:1px solid rgba(128,128,128,0.25);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:0.85rem;">
       </div>
-      <div class="flex justify-end gap-3">
-        <button type="button" id="pwdCancel" class="px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition">Cancel</button>
-        <button type="submit" class="px-4 py-2 text-sm font-medium bg-sky-600 text-white rounded-lg hover:bg-sky-700 transition shadow-sm">Save</button>
+      <div style="display:flex;justify-content:flex-end;gap:0.5rem;">
+        <button type="button" id="pwdCancel" class="btn-primary" style="background:var(--bg);color:var(--text);box-shadow:none;border:1px solid rgba(128,128,128,0.2);">Cancel</button>
+        <button type="submit" class="btn-primary">Save</button>
       </div>
     </form>
   </div>
@@ -113,12 +117,10 @@
 
 <script>
 function showModal(id) {
-  document.getElementById(id).classList.remove('hidden');
-  document.getElementById(id).classList.add('flex');
+  document.getElementById(id).style.display = 'flex';
 }
 function hideModal(id) {
-  document.getElementById(id).classList.add('hidden');
-  document.getElementById(id).classList.remove('flex');
+  document.getElementById(id).style.display = 'none';
 }
 
 document.getElementById('addUserBtn').addEventListener('click', () => {

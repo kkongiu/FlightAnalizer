@@ -1,36 +1,35 @@
 {% extends "base.html" %}
-{% block title %}Audit Log - Pocket Log Analyzer{% endblock %}
+{% block title %}Audit Log · Pocket Log Analyzer{% endblock %}
 {% block content %}
-<div>
-  <div class="flex items-center justify-between mb-6">
-    <h2 class="text-2xl font-bold text-gray-900 dark:text-gray-100">Audit Log</h2>
+<div class="dashboard">
+  <div class="header-bar">
+    <h2>Audit Log</h2>
+    <div class="header-actions">
+      <input id="auditUserFilter" type="text" placeholder="Filter by username..."
+             style="padding:0.45rem 0.7rem;border:1px solid rgba(128,128,128,0.25);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:0.8rem;outline:none;width:200px;">
+      <select id="auditLimit" style="padding:0.45rem 0.6rem;border:1px solid rgba(128,128,128,0.25);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:0.8rem;">
+        <option value="100">100 entries</option>
+        <option value="200" selected>200 entries</option>
+        <option value="500">500 entries</option>
+      </select>
+      <button id="auditRefresh" class="btn-primary">Refresh</button>
+    </div>
   </div>
 
-  <div class="flex gap-2 mb-4">
-    <input id="auditUserFilter" type="text" placeholder="Filter by username..."
-           class="w-64 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none">
-    <select id="auditLimit" class="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm outline-none">
-      <option value="100">100 entries</option>
-      <option value="200" selected>200 entries</option>
-      <option value="500">500 entries</option>
-    </select>
-    <button id="auditRefresh" class="px-4 py-2 bg-sky-600 text-white text-sm font-medium rounded-lg hover:bg-sky-700 transition shadow-sm">Refresh</button>
-  </div>
-
-  <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-    <div class="overflow-x-auto">
-      <table class="w-full text-sm">
+  <div class="card" style="padding:0;overflow:hidden;">
+    <div style="overflow-x:auto;">
+      <table style="width:100%;font-size:0.8rem;border-collapse:collapse;">
         <thead>
-          <tr class="bg-gray-50 dark:bg-gray-900/50 text-left">
-            <th class="px-4 py-3 font-semibold text-gray-600 dark:text-gray-400">Time</th>
-            <th class="px-4 py-3 font-semibold text-gray-600 dark:text-gray-400">User</th>
-            <th class="px-4 py-3 font-semibold text-gray-600 dark:text-gray-400">Action</th>
-            <th class="px-4 py-3 font-semibold text-gray-600 dark:text-gray-400">Detail</th>
-            <th class="px-4 py-3 font-semibold text-gray-600 dark:text-gray-400">IP</th>
+          <tr style="background:rgba(128,128,128,0.08);text-align:left;">
+            <th style="padding:0.6rem 0.9rem;font-weight:700;color:var(--text-secondary);">Time</th>
+            <th style="padding:0.6rem 0.9rem;font-weight:700;color:var(--text-secondary);">User</th>
+            <th style="padding:0.6rem 0.9rem;font-weight:700;color:var(--text-secondary);">Action</th>
+            <th style="padding:0.6rem 0.9rem;font-weight:700;color:var(--text-secondary);">Detail</th>
+            <th style="padding:0.6rem 0.9rem;font-weight:700;color:var(--text-secondary);">IP</th>
           </tr>
         </thead>
-        <tbody id="auditBody" class="divide-y divide-gray-100 dark:divide-gray-700">
-          <tr><td class="px-4 py-3 text-gray-400" colspan="5">Loading...</td></tr>
+        <tbody id="auditBody">
+          <tr><td style="padding:0.6rem 0.9rem;color:var(--text-muted);" colspan="5">Loading...</td></tr>
         </tbody>
       </table>
     </div>
@@ -61,7 +60,18 @@ const ACTION_LABELS = {
   'user_delete': 'User deleted',
   'message_send': 'Message sent',
   'conversation_delete': 'Conversation deleted',
-  'message_delete_admin': 'Message deleted (admin)'
+  'message_delete_admin': 'Message deleted (admin)',
+  'contact_request': 'Contact request',
+  'contact_accept': 'Contact accepted',
+  'contact_decline': 'Contact declined',
+  'contact_remove': 'Contact removed',
+  'group_create': 'Group created',
+  'group_update': 'Group updated',
+  'group_delete': 'Group deleted',
+  'group_member_add': 'Group member added',
+  'group_member_remove': 'Group member removed',
+  'flight_visibility': 'Visibility changed',
+  'flight_group_share': 'Group share changed'
 };
 
 function esc(s) {
@@ -75,22 +85,22 @@ async function loadAudit() {
   const params = new URLSearchParams({limit});
   if (user) params.set('username', user);
   const body = document.getElementById('auditBody');
-  body.innerHTML = '<tr><td class="px-4 py-3 text-gray-400" colspan="5">Loading...</td></tr>';
+  body.innerHTML = '<tr><td style="padding:0.6rem 0.9rem;color:var(--text-muted);" colspan="5">Loading...</td></tr>';
   try {
     const res = await fetch('/flight/api/audit?' + params.toString());
-    if (!res.ok) { body.innerHTML = '<tr><td class="px-4 py-3 text-red-500" colspan="5">Forbidden</td></tr>'; return; }
+    if (!res.ok) { body.innerHTML = '<tr><td style="padding:0.6rem 0.9rem;color:var(--danger);" colspan="5">Forbidden</td></tr>'; return; }
     const rows = await res.json();
-    if (!rows.length) { body.innerHTML = '<tr><td class="px-4 py-3 text-gray-400" colspan="5">No entries</td></tr>'; return; }
+    if (!rows.length) { body.innerHTML = '<tr><td style="padding:0.6rem 0.9rem;color:var(--text-muted);" colspan="5">No entries</td></tr>'; return; }
     body.innerHTML = rows.map(r => `
-      <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition">
-        <td class="px-4 py-2 text-gray-500 dark:text-gray-400 whitespace-nowrap">${esc(r.ts)}</td>
-        <td class="px-4 py-2 font-medium text-gray-900 dark:text-gray-100">${esc(r.username || '—')}</td>
-        <td class="px-4 py-2"><span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">${esc(ACTION_LABELS[r.action] || r.action)}</span></td>
-        <td class="px-4 py-2 text-gray-600 dark:text-gray-300">${esc(r.detail || '')}</td>
-        <td class="px-4 py-2 text-gray-500 dark:text-gray-400">${esc(r.ip || '')}</td>
+      <tr style="border-bottom:1px solid rgba(128,128,128,0.06);">
+        <td style="padding:0.5rem 0.9rem;color:var(--text-secondary);white-space:nowrap;">${esc(r.ts)}</td>
+        <td style="padding:0.5rem 0.9rem;font-weight:600;color:var(--text);">${esc(r.username || '—')}</td>
+        <td style="padding:0.5rem 0.9rem;"><span style="font-size:0.7rem;font-weight:600;padding:0.15rem 0.5rem;border-radius:999px;background:var(--accent-dim);color:var(--accent);">${esc(ACTION_LABELS[r.action] || r.action)}</span></td>
+        <td style="padding:0.5rem 0.9rem;color:var(--text-secondary);">${esc(r.detail || '')}</td>
+        <td style="padding:0.5rem 0.9rem;color:var(--text-muted);">${esc(r.ip || '')}</td>
       </tr>`).join('');
   } catch(e) {
-    body.innerHTML = '<tr><td class="px-4 py-3 text-red-500" colspan="5">Error loading audit log</td></tr>';
+    body.innerHTML = '<tr><td style="padding:0.6rem 0.9rem;color:var(--danger);" colspan="5">Error loading audit log</td></tr>';
   }
 }
 

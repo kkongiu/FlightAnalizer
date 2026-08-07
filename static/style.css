@@ -954,6 +954,48 @@ th.sel-col, td.sel-col { width: 2.4rem; text-align: center; }
     opacity: 0.5;
 }
 
+/* ===== CARD (generic) ===== */
+.card {
+    background: var(--surface);
+    border: 1px solid rgba(128,128,128,0.08);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
+    transition: all var(--transition);
+}
+
+/* ===== STATUS BADGES ===== */
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+}
+.status-active {
+    background: rgba(34,197,94,0.12);
+    color: #22c55e;
+}
+.status-pending {
+    background: rgba(245,158,11,0.12);
+    color: var(--warning);
+}
+.status-disabled {
+    background: rgba(239,68,68,0.12);
+    color: var(--danger);
+}
+
+/* ===== MESSAGES ===== */
+@media (max-width: 900px) {
+    .msg-layout { grid-template-columns: 1fr !important; }
+    .msg-layout > :first-child { height: 280px !important; }
+    .msg-layout > :last-child { min-height: 480px !important; height: 60vh !important; }
+}
+
+/* ===== HELP ===== */
+@media (max-width: 900px) {
+    .help-layout { grid-template-columns: 1fr !important; }
+    .help-sidebar { display: none; }
+}
+
 /* ===== RESPONSIVE ===== */
 @media (max-width: 900px) {
     main { padding: 1rem; }

@@ -1,92 +1,97 @@
 {% extends "base.html" %}
-{% block title %}Messages - Pocket Log Analyzer{% endblock %}
+{% block title %}Messages · Pocket Log Analyzer{% endblock %}
 {% block content %}
-{% if request.session.get('role') == 'admin' %}
-<div class="mb-4">
-  <button id="adminMsgToggle" class="px-4 py-2 border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition">
-    🛠 Admin: all conversations
-  </button>
-  <div id="adminMsgPanel" class="hidden mt-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-    <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 font-semibold text-gray-900 dark:text-gray-100">
-      All conversations (all users)
-    </div>
-    <div id="adminMsgList" class="divide-y divide-gray-100 dark:divide-gray-700 max-h-[60vh] overflow-y-auto text-sm"></div>
-  </div>
-</div>
-{% endif %}
-<div class="grid lg:grid-cols-3 gap-4">
-  <div class="lg:col-span-1">
-    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-      <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-        <h2 class="text-lg font-bold text-gray-900 dark:text-gray-100">Conversations</h2>
-        <button id="newMessageBtn" class="px-3 py-1.5 bg-sky-600 text-white text-sm font-medium rounded-lg hover:bg-sky-700 transition shadow-sm">New</button>
-      </div>
-      <div id="convList" class="divide-y divide-gray-100 dark:divide-gray-700 max-h-[70vh] overflow-y-auto">
-        <div class="px-4 py-3 text-gray-400 text-sm">Loading...</div>
-      </div>
-    </div>
-  </div>
-
-  <div class="lg:col-span-2">
-    <div id="threadPanel" class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col" style="min-height:70vh;">
-      <div id="threadHeader" class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 hidden items-center justify-between">
-        <div class="flex items-center gap-2">
-          <h3 id="threadTitle" class="text-lg font-bold text-gray-900 dark:text-gray-100"></h3>
+<div class="dashboard" style="max-width:1100px;margin:0 auto;">
+    <div class="header-bar">
+        <h2>Messages</h2>
+        <div class="header-actions">
+            <button id="newMessageBtn" class="btn-primary">+ New Message</button>
         </div>
-        <button id="deleteConvBtn" class="px-3 py-1.5 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 text-sm font-medium rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30 transition">Delete conversation</button>
-      </div>
-      <div id="threadBody" class="flex-1 p-4 overflow-y-auto space-y-3">
-        <div class="text-center text-gray-400 dark:text-gray-500 py-16">
-          <p class="text-4xl mb-3">💬</p>
-          <p>Select a conversation or start a new one.</p>
-        </div>
-      </div>
-      <div id="composer" class="hidden border-t border-gray-200 dark:border-gray-700 p-3">
-        <form id="sendForm" class="flex gap-2">
-          <textarea id="msgBody" rows="2" placeholder="Write a message..." required
-                    class="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none resize-none"></textarea>
-          <button type="submit" class="px-4 py-2 bg-sky-600 text-white text-sm font-medium rounded-lg hover:bg-sky-700 transition shadow-sm self-end">Send</button>
-        </form>
-      </div>
     </div>
-  </div>
+
+    {% if request.session.get('role') == 'admin' %}
+    <div style="margin-bottom:0.75rem;">
+        <button id="adminMsgToggle" class="btn-primary btn-sm" style="background:var(--bg);color:var(--text);box-shadow:none;border:1px solid rgba(128,128,128,0.2);">🛠 Admin: all conversations</button>
+    </div>
+    <div id="adminMsgPanel" class="card" style="padding:0.75rem;margin-bottom:1rem;display:none;">
+        <h4 style="font-size:0.8rem;font-weight:700;margin-bottom:0.5rem;">All conversations (all users)</h4>
+        <div id="adminMsgList" style="max-height:55vh;overflow-y:auto;font-size:0.8rem;"></div>
+    </div>
+    {% endif %}
+
+    <div style="display:grid;grid-template-columns:320px 1fr;gap:1rem;" class="msg-layout">
+        <!-- Conversation list -->
+        <div class="card" style="padding:0;display:flex;flex-direction:column;overflow:hidden;height:calc(100vh - 14rem);min-height:440px;">
+            <div style="padding:0.75rem 1rem;border-bottom:1px solid rgba(128,128,128,0.12);display:flex;align-items:center;justify-content:space-between;">
+                <span style="font-weight:700;font-size:0.85rem;">Conversations</span>
+            </div>
+            <div id="convList" style="flex:1;overflow-y:auto;font-size:0.8rem;">
+                <div style="padding:0.75rem 1rem;color:var(--text-muted);">Loading...</div>
+            </div>
+        </div>
+
+        <!-- Thread -->
+        <div class="card" style="padding:0;display:flex;flex-direction:column;overflow:hidden;height:calc(100vh - 14rem);min-height:440px;">
+            <div id="threadHeader" style="display:none;padding:0.75rem 1rem;border-bottom:1px solid rgba(128,128,128,0.12);align-items:center;justify-content:space-between;gap:0.5rem;">
+                <div style="display:flex;align-items:center;gap:0.6rem;min-width:0;">
+                    <div id="threadAvatar" style="width:34px;height:34px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-weight:700;display:flex;align-items:center;justify-content:center;font-size:0.8rem;flex-shrink:0;"></div>
+                    <div style="min-width:0;">
+                        <div id="threadTitle" style="font-weight:700;font-size:0.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
+                        <div id="threadStatus" style="font-size:0.65rem;color:var(--text-muted);">Conversation</div>
+                    </div>
+                </div>
+                <button id="deleteConvBtn" class="btn-danger btn-sm" style="flex-shrink:0;">Delete</button>
+            </div>
+            <div id="threadBody" style="flex:1;overflow-y:auto;padding:0.75rem 1rem;background:rgba(0,0,0,0.02);">
+                <div style="text-align:center;color:var(--text-muted);padding:4rem 1rem;">
+                    <div style="font-size:2.5rem;margin-bottom:0.5rem;">💬</div>
+                    <p style="font-size:0.85rem;">Select a conversation or start a new one.</p>
+                </div>
+            </div>
+            <div id="composer" style="display:none;border-top:1px solid rgba(128,128,128,0.12);padding:0.6rem 0.75rem;">
+                <form id="sendForm" style="display:flex;gap:0.5rem;align-items:flex-end;">
+                    <textarea id="msgBody" rows="2" placeholder="Write a message..." required
+                              style="flex:1;padding:0.5rem 0.7rem;border:1px solid rgba(128,128,128,0.25);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:0.85rem;resize:none;outline:none;font-family:inherit;"></textarea>
+                    <button type="submit" class="btn-primary" style="flex-shrink:0;">Send</button>
+                </form>
+            </div>
+        </div>
+    </div>
 </div>
 
-<div id="newMsgModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-  <div class="bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 w-full max-w-md">
-    <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-      <h3 class="font-bold text-gray-900 dark:text-gray-100">New message</h3>
-      <button id="closeModal" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">✕</button>
+<!-- New message modal -->
+<div id="newMsgModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;backdrop-filter:blur(4px);">
+    <div style="background:var(--surface);border-radius:var(--radius);padding:1.25rem;width:420px;max-width:92vw;box-shadow:var(--shadow-lg);">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
+            <h3 style="font-size:1rem;font-weight:600;color:var(--text);">New message</h3>
+            <button id="closeModal" style="background:none;border:none;color:var(--text-muted);font-size:1.1rem;cursor:pointer;">✕</button>
+        </div>
+        <div style="margin-bottom:0.75rem;">
+            <label style="display:block;font-size:0.7rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.3rem;">Recipient (username)</label>
+            <input id="msgTo" type="text" list="userList" placeholder="username"
+                   style="width:100%;padding:0.55rem 0.7rem;border:1px solid rgba(128,128,128,0.25);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:0.85rem;">
+            <datalist id="userList"></datalist>
+        </div>
+        <div style="margin-bottom:0.75rem;">
+            <label style="display:block;font-size:0.7rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.3rem;">Message</label>
+            <textarea id="msgText" rows="3" placeholder="Message text (optional if attaching a flight)"
+                      style="width:100%;padding:0.55rem 0.7rem;border:1px solid rgba(128,128,128,0.25);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:0.85rem;resize:none;"></textarea>
+        </div>
+        <div style="margin-bottom:0.75rem;">
+            <label style="display:block;font-size:0.7rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.3rem;">Attach a flight (optional)</label>
+            <select id="msgFlight" style="width:100%;padding:0.55rem 0.7rem;border:1px solid rgba(128,128,128,0.25);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:0.85rem;">
+                <option value="">— none —</option>
+            </select>
+        </div>
+        <div id="newMsgError" style="color:var(--danger);font-size:0.8rem;margin-bottom:0.5rem;display:none;"></div>
+        <button id="sendNewMsgBtn" class="btn-primary" style="width:100%;justify-content:center;">Send message</button>
     </div>
-    <div class="p-4 space-y-3">
-      <div>
-        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Recipient (username)</label>
-        <input id="msgTo" type="text" list="userList" placeholder="username"
-               class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none">
-        <datalist id="userList"></datalist>
-      </div>
-      <div>
-        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Message</label>
-        <textarea id="msgText" rows="3" placeholder="Message text (optional if attaching a flight)"
-                  class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none resize-none"></textarea>
-      </div>
-      <div>
-        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Attach a flight (optional)</label>
-        <select id="msgFlight" class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm outline-none">
-          <option value="">— none —</option>
-        </select>
-      </div>
-      <div class="error" id="newMsgError" style="color:#ef4444;font-size:0.85rem;"></div>
-      <button id="sendNewMsgBtn" class="w-full py-2 bg-sky-600 text-white text-sm font-medium rounded-lg hover:bg-sky-700 transition shadow-sm">Send message</button>
-    </div>
-  </div>
 </div>
 
 <script>
 const csrf = document.querySelector('meta[name="csrf-token"]').content;
 const isAdmin = {{ 'true' if request.session.get('role') == 'admin' else 'false' }};
 let currentOther = null;
-let pollTimer = null;
 
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g,
@@ -97,71 +102,109 @@ function fmtTs(ts) {
   if (!ts) return '';
   const d = new Date(ts.includes('T') ? ts : ts.replace(' ', 'T') + 'Z');
   if (isNaN(d)) return String(ts).slice(0, 19);
-  return d.toLocaleString();
+  const now = new Date();
+  const hm = d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+  if (d.toDateString() === now.toDateString()) return hm;
+  const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday ' + hm;
+  return d.toLocaleDateString([], {day: '2-digit', month: 'short'}) + ' ' + hm;
+}
+
+function fmtDay(ts) {
+  if (!ts) return '';
+  const d = new Date(ts.includes('T') ? ts : ts.replace(' ', 'T') + 'Z');
+  if (isNaN(d)) return '';
+  return d.toLocaleDateString([], {weekday: 'short', day: 'numeric', month: 'long', year: 'numeric'});
+}
+
+function initials(name) {
+  return String(name || '?').trim().split(/\s+/).slice(0, 2).map(w => w[0] || '').join('').toUpperCase();
 }
 
 async function loadConversations() {
   const list = document.getElementById('convList');
   try {
     const res = await fetch('/flight/api/messages/conversations');
-    if (!res.ok) { list.innerHTML = '<div class="px-4 py-3 text-red-500 text-sm">Forbidden</div>'; return; }
+    if (!res.ok) { list.innerHTML = '<div style="padding:0.75rem 1rem;color:var(--danger);">Forbidden</div>'; return; }
     const rows = await res.json();
-    if (!rows.length) { list.innerHTML = '<div class="px-4 py-3 text-gray-400 text-sm">No conversations yet.</div>'; return; }
+    if (!rows.length) {
+      list.innerHTML = '<div style="padding:2.5rem 1rem;text-align:center;color:var(--text-muted);font-size:0.8rem;">No conversations yet.<br>Start one with "+ New Message".</div>';
+      return;
+    }
     list.innerHTML = rows.map(c => `
-      <button class="conv-row w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700/40 transition ${currentOther === c.other_id ? 'bg-sky-50 dark:bg-sky-900/20' : ''}"
-              data-other="${c.other_id}">
-        <div class="flex items-center justify-between">
-          <span class="font-semibold text-gray-900 dark:text-gray-100">${esc(c.other_username)}</span>
-          ${c.unread ? `<span class="bg-sky-600 text-white text-xs font-bold rounded-full px-2 py-0.5">${c.unread}</span>` : ''}
-        </div>
-        <div class="text-xs text-gray-500 dark:text-gray-400 truncate mt-1">
-          ${c.last_message ? esc(c.last_message.body.slice(0, 80) || '(flight attached)') : ''}
-        </div>
-        <div class="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">${fmtTs(c.last_message && c.last_message.created_at)}</div>
+      <button class="conv-row" data-other="${c.other_id}"
+              style="width:100%;text-align:left;padding:0.6rem 0.9rem;border:none;background:none;cursor:pointer;display:flex;gap:0.6rem;align-items:flex-start;border-bottom:1px solid rgba(128,128,128,0.06);transition:background 0.15s;${currentOther === c.other_id ? 'background:var(--accent-dim);' : ''}">
+        <span style="flex-shrink:0;width:32px;height:32px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-weight:700;font-size:0.7rem;display:flex;align-items:center;justify-content:center;">${esc(initials(c.other_username))}</span>
+        <span style="min-width:0;flex:1;">
+          <span style="display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-weight:600;color:var(--text);font-size:0.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(c.other_username)}</span>
+            <span style="font-size:0.65rem;color:var(--text-muted);flex-shrink:0;margin-left:0.4rem;">${fmtTs(c.last_message && c.last_message.created_at)}</span>
+          </span>
+          <span style="display:flex;justify-content:space-between;align-items:center;margin-top:0.15rem;">
+            <span style="font-size:0.7rem;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${c.last_message ? esc(c.last_message.body.slice(0, 55) || '(flight attached)') : 'No messages yet'}</span>
+            ${c.unread ? `<span style="flex-shrink:0;margin-left:0.4rem;background:var(--accent);color:#fff;font-size:0.65rem;font-weight:700;border-radius:999px;min-width:18px;height:18px;display:flex;align-items:center;justify-content:center;padding:0 0.3rem;">${c.unread}</span>` : ''}
+          </span>
+        </span>
       </button>`).join('');
-    document.querySelectorAll('.conv-row').forEach(btn =>
-      btn.addEventListener('click', () => openThread(parseInt(btn.dataset.other))));
+    list.querySelectorAll('.conv-row').forEach(btn =>
+      btn.addEventListener('mouseenter', () => { if (parseInt(btn.dataset.other) !== currentOther) btn.style.background = 'rgba(128,128,128,0.06)'; })
+         .addEventListener('mouseleave', () => { if (parseInt(btn.dataset.other) !== currentOther) btn.style.background = 'none'; })
+         .addEventListener('click', () => openThread(parseInt(btn.dataset.other))));
   } catch(e) {
-    list.innerHTML = '<div class="px-4 py-3 text-red-500 text-sm">Error</div>';
+    list.innerHTML = '<div style="padding:0.75rem 1rem;color:var(--danger);">Error</div>';
   }
 }
 
 async function openThread(otherId) {
   currentOther = otherId;
-  document.getElementById('threadHeader').classList.remove('hidden');
-  document.getElementById('threadHeader').classList.add('flex');
-  document.getElementById('composer').classList.remove('hidden');
+  const hdr = document.getElementById('threadHeader');
+  hdr.style.display = 'flex';
+  document.getElementById('composer').style.display = 'block';
   document.getElementById('deleteConvBtn').disabled = false;
   const body = document.getElementById('threadBody');
-  body.innerHTML = '<div class="text-center text-gray-400 py-16">Loading...</div>';
+  body.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:3rem 1rem;">Loading...</div>';
   try {
     const res = await fetch(`/flight/api/messages/conversations/${otherId}`);
-    if (!res.ok) { body.innerHTML = '<div class="text-center text-red-500 py-16">Forbidden</div>'; return; }
+    if (!res.ok) { body.innerHTML = '<div style="text-align:center;color:var(--danger);padding:3rem 1rem;">Forbidden</div>'; return; }
     const data = await res.json();
-    document.getElementById('threadTitle').textContent = data.other ? data.other.username : 'Conversation';
+    const name = data.other ? data.other.username : 'Conversation';
+    document.getElementById('threadTitle').textContent = name;
+    document.getElementById('threadAvatar').textContent = initials(name);
+    document.getElementById('threadStatus').textContent = 'Conversation with ' + name;
     renderThread(data.messages);
     loadConversations();
   } catch(e) {
-    body.innerHTML = '<div class="text-center text-red-500 py-16">Error</div>';
+    body.innerHTML = '<div style="text-align:center;color:var(--danger);padding:3rem 1rem;">Error</div>';
   }
 }
 
 function renderThread(msgs) {
   const body = document.getElementById('threadBody');
   if (!msgs.length) {
-    body.innerHTML = '<div class="text-center text-gray-400 dark:text-gray-500 py-16">No messages in this conversation.</div>';
+    body.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:3rem 1rem;font-size:0.85rem;">No messages in this conversation.</div>';
     return;
   }
-  body.innerHTML = msgs.map(m => `
-    <div class="flex ${m.sender_id === window.__me_id ? 'justify-end' : 'justify-start'}">
-      <div class="max-w-[75%] ${m.sender_id === window.__me_id
-          ? 'bg-sky-600 text-white'
-          : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100'} rounded-xl px-3 py-2 text-sm">
-        ${m.body ? `<div class="whitespace-pre-wrap break-words">${esc(m.body)}</div>` : ''}
-        ${m.flight_file ? `<a href="/flight/flight/${encodeURIComponent(m.flight_file)}" class="block mt-1 text-xs underline ${m.sender_id === window.__me_id ? 'text-white/80' : 'text-sky-600'}">🛸 ${esc(m.flight_file)}</a>` : ''}
-        <div class="text-[11px] mt-1 ${m.sender_id === window.__me_id ? 'text-white/70' : 'text-gray-400 dark:text-gray-500'}">${fmtTs(m.created_at)}</div>
-      </div>
-    </div>`).join('');
+  let html = '';
+  let lastDay = null;
+  msgs.forEach(m => {
+    const day = m.created_at ? m.created_at.slice(0, 10) : '';
+    if (day && day !== lastDay) {
+      html += `<div style="text-align:center;margin:0.75rem 0;"><span style="font-size:0.65rem;color:var(--text-muted);background:var(--surface);border:1px solid rgba(128,128,128,0.12);border-radius:999px;padding:0.25rem 0.7rem;">${esc(fmtDay(m.created_at))}</span></div>`;
+      lastDay = day;
+    }
+    const mine = m.sender_id === window.__me_id;
+    html += `
+      <div style="display:flex;${mine ? 'justify-content:flex-end' : 'justify-content:flex-start'};margin-bottom:0.4rem;">
+        <div style="max-width:78%;${mine
+            ? 'background:linear-gradient(135deg,var(--accent) 0%,#0284c7 100%);color:#0f0f23;border-radius:14px;border-bottom-right-radius:4px;'
+            : 'background:var(--surface);color:var(--text);border:1px solid rgba(128,128,128,0.12);border-radius:14px;border-bottom-left-radius:4px;'}padding:0.5rem 0.75rem;font-size:0.83rem;box-shadow:var(--shadow-sm);">
+          ${m.body ? `<div style="white-space:pre-wrap;word-break:break-word;">${esc(m.body)}</div>` : ''}
+          ${m.flight_file ? `<a href="/flight/flight/${encodeURIComponent(m.flight_file)}" style="display:flex;align-items:center;gap:0.4rem;margin-top:0.4rem;font-size:0.72rem;${mine ? 'color:#0f0f23;opacity:0.85;' : 'color:var(--accent);'}background:rgba(255,255,255,0.15);border-radius:6px;padding:0.3rem 0.5rem;text-decoration:none;">🛸 ${esc(m.flight_file)}</a>` : ''}
+          <div style="font-size:0.62rem;margin-top:0.25rem;${mine ? 'opacity:0.65;' : 'color:var(--text-muted);'}">${fmtTs(m.created_at)}</div>
+        </div>
+      </div>`;
+  });
+  body.innerHTML = html;
   body.scrollTop = body.scrollHeight;
 }
 
@@ -205,7 +248,7 @@ async function loadFlights() {
 
 async function sendNewMessage() {
   const err = document.getElementById('newMsgError');
-  err.textContent = '';
+  err.style.display = 'none';
   const to = document.getElementById('msgTo').value.trim();
   const body = document.getElementById('msgText').value.trim();
   const flight = document.getElementById('msgFlight').value;
@@ -216,13 +259,14 @@ async function sendNewMessage() {
   });
   if (res.ok) {
     const msg = await res.json();
-    document.getElementById('newMsgModal').classList.add('hidden');
+    document.getElementById('newMsgModal').style.display = 'none';
     document.getElementById('msgText').value = '';
     await loadConversations();
     await openThread(msg.sender_id === window.__me_id ? msg.recipient_id : msg.sender_id);
   } else {
     const b = await res.json().catch(() => ({}));
     err.textContent = b.error || 'Send failed';
+    err.style.display = 'block';
   }
 }
 
@@ -241,13 +285,17 @@ async function refreshBadge() {
 }
 
 document.getElementById('sendForm').addEventListener('submit', e => { e.preventDefault(); sendMessage(); });
+document.getElementById('msgBody').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+});
 document.getElementById('newMessageBtn').addEventListener('click', () => {
-  document.getElementById('newMsgModal').classList.remove('hidden');
+  document.getElementById('newMsgModal').style.display = 'flex';
+  document.getElementById('msgTo').focus();
 });
 document.getElementById('closeModal').addEventListener('click', () =>
-  document.getElementById('newMsgModal').classList.add('hidden'));
+  document.getElementById('newMsgModal').style.display = 'none');
 document.getElementById('newMsgModal').addEventListener('click', e => {
-  if (e.target.id === 'newMsgModal') document.getElementById('newMsgModal').classList.add('hidden');
+  if (e.target.id === 'newMsgModal') document.getElementById('newMsgModal').style.display = 'none';
 });
 document.getElementById('sendNewMsgBtn').addEventListener('click', sendNewMessage);
 document.getElementById('deleteConvBtn').addEventListener('click', async () => {
@@ -256,10 +304,10 @@ document.getElementById('deleteConvBtn').addEventListener('click', async () => {
   const res = await fetch(`/flight/api/messages/conversations/${currentOther}`, {method: 'DELETE'});
   if (res.ok) {
     currentOther = null;
-    document.getElementById('threadHeader').classList.add('hidden');
-    document.getElementById('composer').classList.add('hidden');
+    document.getElementById('threadHeader').style.display = 'none';
+    document.getElementById('composer').style.display = 'none';
     document.getElementById('threadBody').innerHTML =
-      '<div class="text-center text-gray-400 dark:text-gray-500 py-16">Conversation deleted.</div>';
+      '<div style="text-align:center;color:var(--text-muted);padding:3rem 1rem;">Conversation deleted.</div>';
     loadConversations();
     refreshBadge();
   }
@@ -271,25 +319,25 @@ window.__me = {{ request.session.get('username')|tojson }};
 async function loadAdminConversations() {
   const list = document.getElementById('adminMsgList');
   if (!list) return;
-  list.innerHTML = '<div class="px-4 py-3 text-gray-400">Loading...</div>';
+  list.innerHTML = '<div style="padding:0.5rem 0;color:var(--text-muted);">Loading...</div>';
   try {
     const res = await fetch('/flight/api/messages/admin/conversations');
-    if (!res.ok) { list.innerHTML = '<div class="px-4 py-3 text-red-500">Forbidden</div>'; return; }
+    if (!res.ok) { list.innerHTML = '<div style="padding:0.5rem 0;color:var(--danger);">Forbidden</div>'; return; }
     const rows = await res.json();
-    if (!rows.length) { list.innerHTML = '<div class="px-4 py-3 text-gray-400">No conversations.</div>'; return; }
+    if (!rows.length) { list.innerHTML = '<div style="padding:0.5rem 0;color:var(--text-muted);">No conversations.</div>'; return; }
     list.innerHTML = rows.map(c => `
-      <div class="px-4 py-3">
-        <div class="flex items-center justify-between mb-1">
-          <span class="font-semibold text-gray-900 dark:text-gray-100">${esc(c.user_a_name)} ⇄ ${esc(c.user_b_name)}</span>
-          <span class="text-xs text-gray-400">${c.msg_count} msgs · ${fmtTs(c.last_ts)}</span>
+      <div style="padding:0.6rem 0;border-bottom:1px solid rgba(128,128,128,0.08);">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.25rem;">
+          <span style="font-weight:600;color:var(--text);">${esc(c.user_a_name)} ⇄ ${esc(c.user_b_name)}</span>
+          <span style="font-size:0.65rem;color:var(--text-muted);">${c.msg_count} msgs · ${fmtTs(c.last_ts)}</span>
         </div>
-        <button class="admin-view text-xs text-sky-600 hover:underline" data-cid="${c.id}">view</button>
-        <div class="admin-thread hidden mt-2 space-y-2" id="adminThread-${c.id}"></div>
+        <button class="admin-view" data-cid="${c.id}" style="font-size:0.7rem;color:var(--accent);background:none;border:none;cursor:pointer;padding:0;">view</button>
+        <div class="admin-thread hidden" id="adminThread-${c.id}" style="margin-top:0.5rem;"></div>
       </div>`).join('');
     document.querySelectorAll('.admin-view').forEach(btn =>
       btn.addEventListener('click', () => toggleAdminThread(btn.dataset.cid, btn)));
   } catch(e) {
-    list.innerHTML = '<div class="px-4 py-3 text-red-500">Error</div>';
+    list.innerHTML = '<div style="padding:0.5rem 0;color:var(--danger);">Error</div>';
   }
 }
 
@@ -300,13 +348,13 @@ async function toggleAdminThread(cid, btn) {
   const res = await fetch('/flight/api/messages/admin/conversations/' + cid).catch(() => null);
   const msgs = res && res.ok ? await res.json() : [];
   box.innerHTML = msgs.map(m => `
-    <div class="flex items-start justify-between gap-2 bg-gray-50 dark:bg-gray-700/40 rounded-lg px-2 py-1.5">
-      <div class="flex-1">
-        <span class="text-[11px] text-gray-500">${esc(m.sender_id === window.__me_id ? 'me' : ('user#' + m.sender_id))} · ${fmtTs(m.created_at)}</span>
-        <div class="break-words">${esc(m.body)}</div>
-        ${m.flight_file ? `<div class="text-xs text-sky-600">🛸 ${esc(m.flight_file)}</div>` : ''}
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:0.5rem;background:rgba(128,128,128,0.06);border-radius:8px;padding:0.5rem 0.6rem;margin-bottom:0.4rem;">
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:0.65rem;color:var(--text-muted);">${esc(m.sender_id === window.__me_id ? 'me' : ('user#' + m.sender_id))} · ${fmtTs(m.created_at)}</div>
+        <div style="word-break:break-word;color:var(--text);">${esc(m.body)}</div>
+        ${m.flight_file ? `<div style="font-size:0.7rem;color:var(--accent);">🛸 ${esc(m.flight_file)}</div>` : ''}
       </div>
-      <button class="admin-del text-red-500 text-xs hover:underline" data-mid="${m.id}">delete</button>
+      <button class="admin-del" data-mid="${m.id}" style="color:var(--danger);font-size:0.7rem;background:none;border:none;cursor:pointer;flex-shrink:0;">delete</button>
     </div>`).join('');
   box.classList.remove('hidden');
   btn.textContent = 'hide';
@@ -320,8 +368,8 @@ async function toggleAdminThread(cid, btn) {
 if (document.getElementById('adminMsgToggle')) {
   document.getElementById('adminMsgToggle').addEventListener('click', () => {
     const panel = document.getElementById('adminMsgPanel');
-    panel.classList.toggle('hidden');
-    if (!panel.classList.contains('hidden')) loadAdminConversations();
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    if (panel.style.display === 'block') loadAdminConversations();
   });
 }
 
