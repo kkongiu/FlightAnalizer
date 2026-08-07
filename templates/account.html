@@ -35,6 +35,20 @@
             </select>
             <div class="ok" id="themeOk" style="color:#16a34a;font-size:0.85rem;margin-top:0.5rem;"></div>
         </div>
+
+        <div class="record-card">
+            <h3 style="font-size:0.95rem;font-weight:600;color:var(--text);margin-bottom:1rem;">Your Data</h3>
+            <p style="font-size:0.85rem;color:var(--text-muted,#666);margin-bottom:0.75rem;">Download a complete copy of your account, flights and vehicles (GDPR art. 20).</p>
+            <button id="exportBtn" class="btn-primary">Export My Data (JSON)</button>
+            <div class="ok" id="exportOk" style="color:#16a34a;font-size:0.85rem;margin-top:0.5rem;"></div>
+        </div>
+
+        <div class="record-card" style="border-color:#ef4444;">
+            <h3 style="font-size:0.95rem;font-weight:600;color:#ef4444;margin-bottom:1rem;">Delete Account</h3>
+            <p style="font-size:0.85rem;color:var(--text-muted,#666);margin-bottom:0.75rem;">Permanently delete your account and all associated flights, vehicles and files. This cannot be undone.</p>
+            <button id="deleteAccountBtn" class="btn-danger">Delete My Account</button>
+            <div class="error" id="deleteError" style="color:#ef4444;font-size:0.85rem;margin-top:0.5rem;"></div>
+        </div>
     </div>
 </div>
 <script>
@@ -101,6 +115,58 @@
         } else {
             const body = await res.json().catch(() => ({}));
             err.textContent = body.error || 'Update failed';
+        }
+    });
+
+    document.getElementById('exportBtn').addEventListener('click', async () => {
+        const ok = document.getElementById('exportOk');
+        ok.textContent = '';
+        try {
+            const res = await fetch('/flight/api/account/export');
+            if (!res.ok) { const b = await res.json().catch(() => ({})); alert(b.error || 'Export failed'); return; }
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const cd = res.headers.get('Content-Disposition') || '';
+            const m = cd.match(/filename="?([^";]+)"?/);
+            a.download = m ? m[1] : 'data-export.json';
+            a.href = url;
+            a.click();
+            URL.revokeObjectURL(url);
+            ok.textContent = 'Export downloaded';
+        } catch(e) {
+            alert('Export error: ' + e.message);
+        }
+    });
+
+    document.getElementById('deleteAccountBtn').addEventListener('click', async () => {
+        const err = document.getElementById('deleteError');
+        err.textContent = '';
+        const first = await fetch('/flight/api/account', {method: 'DELETE'});
+        const data = await first.json().catch(() => ({}));
+        if (first.status === 409 && data.confirm && data.counts) {
+            const c = data.counts;
+            const keepBackup = confirm(
+                'Delete your account permanently?\n\n' +
+                'This will remove:\n' +
+                '  - ' + c.flights + ' flights\n' +
+                '  - ' + c.vehicles + ' vehicles\n\n' +
+                'Create a database backup first?'
+            );
+            if (keepBackup === null) return;
+            const res = await fetch('/flight/api/account', {
+                method: 'DELETE',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({confirm: true, backup: keepBackup})
+            });
+            if (res.ok) {
+                window.location.href = '/flight/login';
+            } else {
+                const b = await res.json().catch(() => ({}));
+                err.textContent = b.error || 'Delete failed';
+            }
+        } else {
+            err.textContent = data.error || 'Delete failed';
         }
     });
 })();

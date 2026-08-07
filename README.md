@@ -449,11 +449,11 @@ Done so far:
 - [x] **F1 · Sicurezza** — rate limiting, CSRF, secure session cookies, password policy
 - [x] **F2 · Account** — public registration (open/approval/confirm), email confirmation, privacy consent, password reset, self-service account, admin user management
 - [x] **F3 · Isolamento** — per-user flight ownership (`owner_id`), cross-user collision protection, admin owner indicator/filter, isolation tests
+- [x] **F4 · Privacy** — self-service data export (GDPR art. 20) and account deletion, audit log viewer, privacy/terms page
 
 Next (by phase):
 
-- **F4 · Privacy** — account deletion + data export, audit log, privacy policy
-- **F5 · Messaggi** — private messaging, in-app notifications, email/push alerts
+- **F5 · Messaggi e notifiche** — private messaging, in-app notifications, email/push alerts
 - **F6 · Foto** — per-flight photo gallery, covers, geotagged photos
 - **F7 · Sharing** — public share links, social buttons, comments/likes, team groups
 - **F8 · Dominio** — maintenance reminders, Excel/CSV export, API upload tokens, flight weather

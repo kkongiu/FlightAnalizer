@@ -82,11 +82,28 @@ def _migrate_005_users_email_confirmation(conn: sqlite3.Connection):
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email)")
 
 
+def _migrate_006_audit_log(conn: sqlite3.Connection):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts TEXT NOT NULL DEFAULT (datetime('now')),
+            user_id INTEGER,
+            username TEXT,
+            action TEXT NOT NULL,
+            detail TEXT,
+            ip TEXT
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_username ON audit_log(username)")
+
+
 MIGRATIONS = [
     (2, "flights_owner_id", _migrate_002_flights_owner_id),
     (3, "vehicles_owner_id", _migrate_003_vehicles_owner_id),
     (4, "users_account_fields", _migrate_004_users_account_fields),
     (5, "users_email_confirmation", _migrate_005_users_email_confirmation),
+    (6, "audit_log", _migrate_006_audit_log),
 ]
 
 
@@ -964,6 +981,31 @@ def verify_user(username: str, password: str) -> dict | None:
     if not _verify_password(password, user["password_hash"], user["salt"]):
         return None
     return get_user_by_id(user["id"])
+
+
+# --- Audit log (F4) ---
+
+
+def log_audit(user_id: int | None, username: str | None, action: str,
+              detail: str | None = None, ip: str | None = None) -> None:
+    with _get_conn() as conn:
+        conn.execute(
+            "INSERT INTO audit_log (user_id, username, action, detail, ip) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (user_id, username, action, detail, ip))
+
+
+def get_audit_log(limit: int = 200, username: str | None = None) -> list[dict]:
+    with _get_conn() as conn:
+        if username:
+            rows = conn.execute(
+                "SELECT * FROM audit_log WHERE username = ? "
+                "ORDER BY ts DESC, id DESC LIMIT ?", (username, limit)).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM audit_log ORDER BY ts DESC, id DESC LIMIT ?",
+                (limit,)).fetchall()
+    return [dict(r) for r in rows]
 
 
 init_db()

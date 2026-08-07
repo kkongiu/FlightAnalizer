@@ -1,19 +1,48 @@
 {% extends "base.html" %}
-{% block title %}Privacy Policy - Pocket Log Analyzer{% endblock %}
+{% block title %}Privacy & Terms - Pocket Log Analyzer{% endblock %}
 {% block content %}
 <div class="dashboard" style="max-width:760px;">
     <div class="header-bar">
-        <h2>Privacy Policy</h2>
+        <h2>Privacy &amp; Terms</h2>
     </div>
+
+    {% if user %}
+    <div class="record-card" style="margin-bottom:1rem;">
+        <h3 style="font-size:0.95rem;font-weight:600;color:var(--text);margin-bottom:0.5rem;">Your Consent</h3>
+        <p style="font-size:0.85rem;color:var(--text-muted,#666);">
+            {% if privacy_accepted_at %}
+            You accepted the privacy policy on <strong style="color:var(--text);">{{ privacy_accepted_at[:19] }}</strong>.
+            {% else %}
+            No privacy consent is recorded for your account.
+            {% endif %}
+        </p>
+        <p style="font-size:0.85rem;color:var(--text-muted,#666);margin-top:0.5rem;">
+            You can <a href="/flight/account" style="color:#0ea5e9;">export your data</a> or
+            <a href="/flight/account" style="color:#ef4444;">delete your account</a> at any time (GDPR artt. 17 e 20).
+        </p>
+    </div>
+    {% endif %}
+
     <div class="record-card" style="line-height:1.6;color:var(--text);">
-        <p>Placeholder — sostituire con la privacy policy effettiva (GDPR):</p>
-        <ul style="padding-left:1.2rem;">
-            <li>Dati raccolti: username, email, password (hash PBKDF2), telemetria dei voli caricati.</li>
-            <li>Finalità: erogazione del servizio di analisi e archiviazione dei voli.</li>
-            <li>Trattamento: i dati sono conservati su questo server e non vengono ceduti a terzi.</li>
-            <li>Diritti: accesso, rettifica, cancellazione (GDPR artt. 15-17).</li>
-            <li>Contatto: amministratore del sito.</li>
+        <h3 style="font-size:1rem;font-weight:600;color:var(--text);margin-bottom:0.75rem;">1. Data collected</h3>
+        <p style="font-size:0.9rem;margin-bottom:0.75rem;">To provide the service we store: username, email (optional), a PBKDF2-hashed password, your preferences, and the flight telemetry (CSV logs and derived tracks/statistics) you upload. IP addresses may be recorded in the audit log for security.</p>
+
+        <h3 style="font-size:1rem;font-weight:600;color:var(--text);margin-bottom:0.75rem;">2. Purpose</h3>
+        <p style="font-size:0.9rem;margin-bottom:0.75rem;">Your data is used exclusively to run and improve this flight-log analysis service. It is stored on this server and is not sold or shared with third parties.</p>
+
+        <h3 style="font-size:1rem;font-weight:600;color:var(--text);margin-bottom:0.75rem;">3. Data retention &amp; deletion</h3>
+        <p style="font-size:0.9rem;margin-bottom:0.75rem;">You can delete your account and all associated data at any time from the Account page; this also removes your flights, vehicles and uploaded files. A final backup may be created before deletion at your request.</p>
+
+        <h3 style="font-size:1rem;font-weight:600;color:var(--text);margin-bottom:0.75rem;">4. Your rights (GDPR)</h3>
+        <ul style="padding-left:1.2rem;font-size:0.9rem;margin-bottom:0.75rem;">
+            <li>Access (art. 15) — request a copy of your data at any time from the Account page.</li>
+            <li>Rectification (art. 16) — edit your username, email and preferences.</li>
+            <li>Erasure (art. 17) — delete your account and data.</li>
+            <li>Data portability (art. 20) — export your data in JSON.</li>
         </ul>
+
+        <h3 style="font-size:1rem;font-weight:600;color:var(--text);margin-bottom:0.75rem;">5. Contact</h3>
+        <p style="font-size:0.9rem;">For any privacy request, contact the site administrator.</p>
     </div>
 </div>
 {% endblock %}

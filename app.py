@@ -36,7 +36,8 @@ from database import (save_flight, get_all_flights, get_flight, delete_flight,
                       create_reset_token, get_reset_token_user,
                       clear_reset_token, set_user_preferences,
                       get_user_by_email, create_confirm_token,
-                      get_confirm_token_user, clear_confirm_token, activate_user)
+                      get_confirm_token_user, clear_confirm_token, activate_user,
+                      log_audit, get_audit_log)
 import httpx
 import backup
 import mailer
@@ -311,6 +312,16 @@ def _scope(owner_id, is_admin=False):
     return owner_id, is_admin
 
 
+def _audit(request: Request, action: str, detail: str | None = None) -> None:
+    """Append a row to the audit log for the current session user."""
+    me = _current(request)
+    try:
+        log_audit(me.get("user_id"), me.get("username"), action, detail,
+                  client_ip(request))
+    except Exception:
+        pass
+
+
 def get_stats(owner_id=None, is_admin=False):
     flights = get_all_flights(owner_id, is_admin)
     total_dist = sum(f.get("distance_km", 0) for f in flights)
@@ -413,12 +424,21 @@ async def login(request: Request):
         request.session["role"] = db_user["role"]
         csrf_token = secrets.token_urlsafe(32)
         request.session["csrf_token"] = csrf_token
+        try:
+            log_audit(db_user["id"], db_user["username"], "login", ip=client_ip(request))
+        except Exception:
+            pass
         return {"ok": True, "csrf_token": csrf_token}
+    try:
+        log_audit(None, user, "login_failed", ip=client_ip(request))
+    except Exception:
+        pass
     return JSONResponse({"error": "Invalid credentials"}, status_code=401)
 
 
 @app.post("/logout")
 async def logout(request: Request):
+    _audit(request, "logout")
     request.session.clear()
     return RedirectResponse(url="/flight/login", status_code=303)
 
@@ -484,6 +504,10 @@ async def api_register(request: Request):
                        email=email or None, privacy_accepted_at=now)
     if not user:
         return JSONResponse({"error": "username already exists"}, status_code=409)
+    try:
+        log_audit(user["id"], username, "register", f"status={status}", client_ip(request))
+    except Exception:
+        pass
 
     if status == "pending" and REGISTRATION_MODE == "confirm":
         token = secrets.token_urlsafe(32)
@@ -513,6 +537,11 @@ async def confirm_page(request: Request, token: str = ""):
         if user:
             activate_user(user["id"])
             clear_confirm_token(user["id"])
+            try:
+                log_audit(user["id"], user["username"], "account_activated",
+                          ip=client_ip(request))
+            except Exception:
+                pass
             success = True
         else:
             error = "Invalid or expired confirmation link"
@@ -522,7 +551,12 @@ async def confirm_page(request: Request, token: str = ""):
 
 @app.get("/privacy", response_class=HTMLResponse)
 async def privacy_page(request: Request):
-    return templates.TemplateResponse(request, "privacy.html", {})
+    user = None
+    if request.session.get("user_id"):
+        user = get_user_by_id(request.session.get("user_id"))
+    return templates.TemplateResponse(request, "privacy.html",
+                                      {"user": user,
+                                       "privacy_accepted_at": (user or {}).get("privacy_accepted_at") or ""})
 
 
 @app.get("/reset-password", response_class=HTMLResponse)
@@ -549,6 +583,10 @@ async def api_reset_password_submit(request: Request):
         return JSONResponse({"error": policy_error}, status_code=400)
     change_password(user["id"], password)
     clear_reset_token(user["id"])
+    try:
+        log_audit(user["id"], user["username"], "password_reset", ip=client_ip(request))
+    except Exception:
+        pass
     return {"ok": True}
 
 
@@ -567,6 +605,7 @@ async def api_issue_reset_password(user_id: int, request: Request):
     token_hash = hashlib.sha256(token.encode()).hexdigest()
     expires = (datetime.now(timezone.utc) + timedelta(seconds=RESET_TOKEN_TTL_SECONDS)).isoformat()
     create_reset_token(user_id, token_hash, expires)
+    _audit(request, "password_reset_link", user["username"])
     return {"reset_url": f"/reset-password?token={token}"}
 
 
@@ -599,6 +638,7 @@ async def api_account_update(request: Request):
     if not user:
         return JSONResponse({"error": "username or email already in use"}, status_code=409)
     request.session["username"] = user["username"]
+    _audit(request, "account_update", f"username={user['username']} email={user.get('email') or ''}")
     return {"ok": True, "username": user["username"], "email": user.get("email") or ""}
 
 
@@ -622,6 +662,7 @@ async def api_account_change_password(request: Request):
     if policy_error:
         return JSONResponse({"error": policy_error}, status_code=400)
     change_password(me["user_id"], new_password)
+    _audit(request, "password_change")
     return {"ok": True}
 
 
@@ -638,6 +679,90 @@ async def api_account_preferences(request: Request):
     allowed = {"theme"}
     set_user_preferences(me["user_id"], {k: v for k, v in prefs.items() if k in allowed})
     return {"ok": True}
+
+
+@app.get("/api/account/export")
+async def api_account_export(request: Request):
+    """Self-service GDPR data export: the current user's whole dataset."""
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    user = get_user_by_id(me["user_id"])
+    payload = {
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "account": {
+            "username": user["username"],
+            "role": user["role"],
+            "status": user.get("status"),
+            "email": user.get("email") or "",
+            "created_at": user.get("created_at") or "",
+            "preferences": user.get("preferences") or {},
+        },
+        "flights": get_all_flights(me["user_id"], me["is_admin"]),
+        "vehicles": [v.__dict__ for v in get_vehicles(me["user_id"], me["is_admin"])],
+    }
+    _audit(request, "data_export")
+    name = re.sub(r"[^\w\-.]", "_", user["username"]) or "user"
+    return Response(
+        content=json.dumps(payload, indent=2, ensure_ascii=False),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{name}-data-export.json"'},
+    )
+
+
+@app.delete("/api/account")
+async def api_account_delete(request: Request):
+    """Self-service account deletion with confirmation (GDPR art. 17)."""
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    user = get_user_by_id(me["user_id"])
+    if not user:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    if user["role"] == "admin":
+        return JSONResponse(
+            {"error": "an admin account cannot delete itself; ask another admin"},
+            status_code=400)
+    counts = count_user_data(me["user_id"])
+    raw = await request.body()
+    body = {}
+    if raw:
+        try:
+            body = json.loads(raw)
+        except Exception:
+            body = {}
+    confirm = str(body.get("confirm", "")).strip().lower() == "true"
+    if not confirm:
+        return JSONResponse({
+            "error": "confirmation required",
+            "confirm": True,
+            "counts": counts,
+        }, status_code=409)
+    backup_info = None
+    if str(body.get("backup", "")).strip().lower() == "true":
+        backup_dir = database.DATA_DIR / "backups"
+        backup_info = backup_database(backup_dir)
+    username = user["username"]
+    result = delete_user_cascade(me["user_id"])
+    for fname in result.get("flights", []):
+        (LOG_DIR / fname).unlink(missing_ok=True)
+    photo_dir = database.DATA_DIR / "vehicle_photos"
+    for vid in result.get("vehicles", []):
+        for ext in (".jpg", ".jpeg", ".png", ".webp"):
+            (photo_dir / f"v{vid}{ext}").unlink(missing_ok=True)
+    try:
+        log_audit(me["user_id"], username, "account_delete", ip=client_ip(request))
+    except Exception:
+        pass
+    request.session.clear()
+    return {
+        "deleted": username,
+        "flights_deleted": len(result.get("flights", [])),
+        "vehicles_deleted": len(result.get("vehicles", [])),
+        "backup": str(backup_info) if backup_info else None,
+    }
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -788,6 +913,7 @@ async def scan_logs(request: Request):
             imported.append(key)
         except Exception:
             pass
+    _audit(request, "scan", f"imported={len(imported)}")
     return {"imported": imported}
 
 
@@ -826,6 +952,7 @@ async def upload_log(request: Request, file: UploadFile = File(...)):
         if default_v:
             summary.vehicle_id = default_v.id
         save_flight(summary, me["user_id"])
+        _audit(request, "upload", safe_name)
         return {"imported": safe_name}
     except Exception:
         dest.unlink(missing_ok=True)
@@ -864,6 +991,7 @@ async def reprocess_flights(request: Request):
             results.append(key)
         except Exception as e:
             results.append(f"{key}: error: {e}")
+    _audit(request, "reprocess", f"count={len(results)}")
     return {"reprocessed": results}
 
 
@@ -1060,6 +1188,7 @@ async def api_flight(request: Request, filename: str):
     flight = get_flight(filename, me["user_id"], me["is_admin"])
     if not flight:
         return JSONResponse({"error": "not found"}, status_code=404)
+    _audit(request, "flight_view", filename)
     return flight
 
 
@@ -1072,6 +1201,7 @@ async def api_delete(request: Request, filename: str):
     if not delete_flight(filename, me["user_id"], me["is_admin"]):
         return JSONResponse({"error": "not found"}, status_code=404)
     (LOG_DIR / filename).unlink(missing_ok=True)
+    _audit(request, "flight_delete", filename)
     return {"deleted": filename}
 
 
@@ -1118,6 +1248,7 @@ async def api_export(request: Request, filename: str, format: str = "gpx"):
     flight = get_flight(filename, me["user_id"], me["is_admin"])
     if not flight:
         return JSONResponse({"error": "not found"}, status_code=404)
+    _audit(request, "flight_export", f"{filename} ({format})")
     coords = flight.get("coordinates", [])
     safe_name = _xml_escape(filename)
     if format == "kml":
@@ -1761,6 +1892,7 @@ async def api_create_user(request: Request):
     user = create_user(username, password, role, status=status, email=email or None)
     if not user:
         return JSONResponse({"error": "username already exists"}, status_code=409)
+    _audit(request, "user_create", f"{username} role={role} status={status}")
     return {"id": user["id"], "username": user["username"],
             "role": user["role"], "status": user["status"], "email": user.get("email") or ""}
 
@@ -1797,6 +1929,8 @@ async def api_update_user(user_id: int, request: Request):
     )
     if not user:
         return JSONResponse({"error": "not found"}, status_code=404)
+    _audit(request, "user_update",
+           f"user={user['username']} role={user['role']} status={user['status']}")
     return {"id": user["id"], "username": user["username"],
             "role": user["role"], "status": user["status"], "email": user.get("email") or ""}
 
@@ -1835,6 +1969,7 @@ async def api_delete_user(user_id: int, request: Request):
         backup_dir = database.DATA_DIR / "backups"
         backup_info = backup_database(backup_dir)
     result = delete_user_cascade(user_id)
+    _audit(request, "user_delete", user["username"])
     for fname in result.get("flights", []):
         (LOG_DIR / fname).unlink(missing_ok=True)
         deleted_files.append(fname)
@@ -1877,6 +2012,37 @@ async def api_change_password(user_id: int, request: Request):
         return JSONResponse({"error": "forbidden"}, status_code=403)
     change_password(user_id, new_password)
     return {"ok": True}
+
+
+# --- Audit log (admin, F4) ---
+
+
+@app.get("/audit", response_class=HTMLResponse)
+async def audit_page(request: Request):
+    redirect = require_auth(request)
+    if redirect:
+        return redirect
+    forbidden = require_admin(request)
+    if forbidden:
+        return forbidden
+    return templates.TemplateResponse(request, "audit.html", {})
+
+
+@app.get("/api/audit")
+async def api_audit(request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    forbidden = require_admin(request)
+    if forbidden:
+        return forbidden
+    limit = 200
+    try:
+        limit = min(500, max(1, int(request.query_params.get("limit", "200"))))
+    except ValueError:
+        pass
+    username = (request.query_params.get("username") or "").strip() or None
+    return get_audit_log(limit=limit, username=username)
 
 
 # Auto-sync: merge nav telemetry for all flights and recompute derived metrics

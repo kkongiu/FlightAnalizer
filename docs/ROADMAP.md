@@ -5,7 +5,7 @@ la fase di implementazione e la lista è in ordine di esecuzione: ogni fase va
 completata prima di passare alla successiva.
 
 Ogni voce corrisponde a un'issue GitHub: il numero `[#N]` è il riferimento.
-Stato: **F0, F1, F2, F3 completate** (F2 include registrazione con conferma via email e consenso privacy); F4–F8 pending.
+Stato: **F0–F4 completate** (F2 include registrazione con conferma via email e consenso privacy; F4 include export dati, cancellazione self-service e audit log); F5–F8 pending.
 
 ---
 
@@ -44,9 +44,9 @@ Stato: **F0, F1, F2, F3 completate** (F2 include registrazione con conferma via 
 
 ## F4 · Privacy
 
-- [ ] `[F4][PRIVACY]` Cancellazione account completa con i propri dati (voli, foto, messaggi) + esportazione dati utente — [#22](https://github.com/kkongiu/FlightAnalizer/issues/22)
-- [ ] `[F4][PRIVACY]` Log di accesso/audit (chi ha fatto cosa, chi ha visto cosa) — [#23](https://github.com/kkongiu/FlightAnalizer/issues/23)
-- [ ] `[F4][PRIVACY]` Pagina Privacy/Termini + gestione consensi — [#24](https://github.com/kkongiu/FlightAnalizer/issues/24)
+- [x] `[F4][PRIVACY]` Cancellazione account completa con i propri dati (voli, foto, messaggi) + esportazione dati utente — [#22](https://github.com/kkongiu/FlightAnalizer/issues/22)
+- [x] `[F4][PRIVACY]` Log di accesso/audit (chi ha fatto cosa, chi ha visto cosa) — [#23](https://github.com/kkongiu/FlightAnalizer/issues/23)
+- [x] `[F4][PRIVACY]` Pagina Privacy/Termini + gestione consensi — [#24](https://github.com/kkongiu/FlightAnalizer/issues/24)
 
 ## F5 · Messaggi e notifiche
 

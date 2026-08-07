@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Audit Log - Pocket Log Analyzer{% endblock %}
+{% block content %}
+<div>
+  <div class="flex items-center justify-between mb-6">
+    <h2 class="text-2xl font-bold text-gray-900 dark:text-gray-100">Audit Log</h2>
+  </div>
+
+  <div class="flex gap-2 mb-4">
+    <input id="auditUserFilter" type="text" placeholder="Filter by username..."
+           class="w-64 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none">
+    <select id="auditLimit" class="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm outline-none">
+      <option value="100">100 entries</option>
+      <option value="200" selected>200 entries</option>
+      <option value="500">500 entries</option>
+    </select>
+    <button id="auditRefresh" class="px-4 py-2 bg-sky-600 text-white text-sm font-medium rounded-lg hover:bg-sky-700 transition shadow-sm">Refresh</button>
+  </div>
+
+  <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="bg-gray-50 dark:bg-gray-900/50 text-left">
+            <th class="px-4 py-3 font-semibold text-gray-600 dark:text-gray-400">Time</th>
+            <th class="px-4 py-3 font-semibold text-gray-600 dark:text-gray-400">User</th>
+            <th class="px-4 py-3 font-semibold text-gray-600 dark:text-gray-400">Action</th>
+            <th class="px-4 py-3 font-semibold text-gray-600 dark:text-gray-400">Detail</th>
+            <th class="px-4 py-3 font-semibold text-gray-600 dark:text-gray-400">IP</th>
+          </tr>
+        </thead>
+        <tbody id="auditBody" class="divide-y divide-gray-100 dark:divide-gray-700">
+          <tr><td class="px-4 py-3 text-gray-400" colspan="5">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+const ACTION_LABELS = {
+  'login': 'Login',
+  'login_failed': 'Login failed',
+  'logout': 'Logout',
+  'register': 'Register',
+  'account_activated': 'Email confirmed',
+  'account_update': 'Account updated',
+  'password_change': 'Password changed',
+  'password_reset': 'Password reset',
+  'password_reset_link': 'Reset link issued',
+  'data_export': 'Data export',
+  'account_delete': 'Account deleted',
+  'upload': 'Upload',
+  'scan': 'Scan folder',
+  'reprocess': 'Reprocess',
+  'flight_view': 'Flight viewed',
+  'flight_delete': 'Flight deleted',
+  'flight_export': 'Flight exported',
+  'user_create': 'User created',
+  'user_update': 'User updated',
+  'user_delete': 'User deleted'
+};
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function loadAudit() {
+  const user = document.getElementById('auditUserFilter').value.trim();
+  const limit = document.getElementById('auditLimit').value;
+  const params = new URLSearchParams({limit});
+  if (user) params.set('username', user);
+  const body = document.getElementById('auditBody');
+  body.innerHTML = '<tr><td class="px-4 py-3 text-gray-400" colspan="5">Loading...</td></tr>';
+  try {
+    const res = await fetch('/flight/api/audit?' + params.toString());
+    if (!res.ok) { body.innerHTML = '<tr><td class="px-4 py-3 text-red-500" colspan="5">Forbidden</td></tr>'; return; }
+    const rows = await res.json();
+    if (!rows.length) { body.innerHTML = '<tr><td class="px-4 py-3 text-gray-400" colspan="5">No entries</td></tr>'; return; }
+    body.innerHTML = rows.map(r => `
+      <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition">
+        <td class="px-4 py-2 text-gray-500 dark:text-gray-400 whitespace-nowrap">${esc(r.ts)}</td>
+        <td class="px-4 py-2 font-medium text-gray-900 dark:text-gray-100">${esc(r.username || '—')}</td>
+        <td class="px-4 py-2"><span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">${esc(ACTION_LABELS[r.action] || r.action)}</span></td>
+        <td class="px-4 py-2 text-gray-600 dark:text-gray-300">${esc(r.detail || '')}</td>
+        <td class="px-4 py-2 text-gray-500 dark:text-gray-400">${esc(r.ip || '')}</td>
+      </tr>`).join('');
+  } catch(e) {
+    body.innerHTML = '<tr><td class="px-4 py-3 text-red-500" colspan="5">Error loading audit log</td></tr>';
+  }
+}
+
+document.getElementById('auditRefresh').addEventListener('click', loadAudit);
+document.getElementById('auditUserFilter').addEventListener('keydown', e => { if (e.key === 'Enter') loadAudit(); });
+document.getElementById('auditLimit').addEventListener('change', loadAudit);
+loadAudit();
+</script>
+{% endblock %}
