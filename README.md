@@ -66,6 +66,19 @@ Open **http://localhost:8000** and log in with `admin` / `changeme`.
 > The first user is seeded from `POCKET_USER` / `POCKET_PASS` environment variables.  
 > After that, you can create additional users (indipendente or admin) from the **Users** page.
 
+### Demo data
+
+For a quick demo, seed the `testviewer` account with fully invented flights,
+vehicles, tags, groups, a public share link with comments/likes:
+
+```bash
+python scripts/seed_demo.py
+# logs in as testviewer / demo123
+```
+
+Safe to re-run: flights are upserted by filename, users/vehicles created only
+if missing (the demo password is reset on every run).
+
 ---
 
 ## Production Deployment (Nginx + Systemd)
