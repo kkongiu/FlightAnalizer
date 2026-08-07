@@ -1037,3 +1037,32 @@ th.sel-col, td.sel-col { width: 2.4rem; text-align: center; }
     .record-grid { grid-template-columns: repeat(2, 1fr); }
     .flights-grid { grid-template-columns: 1fr; }
 }
+
+/* --- F6 Photo gallery --- */
+.photo-gallery { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.5rem; }
+.photo-upload { display: flex; align-items: center; }
+.photo-item {
+    position: relative;
+    width: 120px; height: 90px;
+    border-radius: var(--radius-sm, 8px);
+    overflow: hidden;
+    border: 1px solid var(--border, rgba(128,128,128,0.25));
+    background: var(--bg, #111);
+}
+.photo-item img { width: 100%; height: 100%; object-fit: cover; cursor: zoom-in; display: block; }
+.photo-item.is-cover { box-shadow: 0 0 0 2px #0ea5e9; }
+.photo-actions {
+    position: absolute; inset: auto 0 0 0;
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 0.15rem 0.35rem;
+    background: rgba(0,0,0,0.55);
+    font-size: 0.6rem;
+    opacity: 0; transition: opacity 0.15s;
+}
+.photo-item:hover .photo-actions { opacity: 1; }
+.photo-cover-tag { color: #7dd3fc; font-weight: 700; }
+.photo-btn { color: #fff; cursor: pointer; background: none; border: none; padding: 0.1rem 0.2rem; }
+.photo-btn:hover { text-decoration: underline; }
+.photo-del { color: #fca5a5; }
+.cover-thumb { width: 56px; height: 42px; object-fit: cover; border-radius: 4px; display: block; }
+.cover-empty { background: repeating-linear-gradient(45deg,#8880,#8880 6px,#8882 6px,#8882 12px); }

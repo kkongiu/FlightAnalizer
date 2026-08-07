@@ -11,6 +11,7 @@ from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from collections import defaultdict
 import xml.etree.ElementTree as ET
+from urllib.parse import quote
 from xml.sax.saxutils import escape as xml_escape
 from fastapi import FastAPI, Request, UploadFile, File, Depends
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -41,7 +42,9 @@ from database import (save_flight, get_all_flights, get_flight, delete_flight,
                       send_message, get_thread, get_conversations_for,
                       mark_thread_read, unread_message_count,
                       delete_conversation_for, get_all_conversations,
-                      delete_message_admin, get_conversation_by_pair)
+                      delete_message_admin, get_conversation_by_pair,
+                      add_flight_photo, get_flight_photos, delete_flight_photo,
+                      set_flight_cover, delete_photos_for_flights, cover_map)
 import httpx
 import backup
 import mailer
@@ -213,6 +216,7 @@ templates.env.filters["dict2str"] = dict2str
 templates.env.filters["fmt_duration"] = fmt_duration
 templates.env.globals["now"] = datetime.now
 LOG_DIR = Path(os.environ.get("POCKET_LOG_DIR", Path(__file__).parent))
+PHOTO_DIR = database.DATA_DIR / "flight_photos"
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -706,6 +710,7 @@ async def api_account_export(request: Request):
         "flights": get_all_flights(me["user_id"], me["is_admin"]),
         "vehicles": [v.__dict__ for v in get_vehicles(me["user_id"], me["is_admin"])],
         "messages": _export_messages(me["user_id"]),
+        "photos": _export_photos(me["user_id"], me["is_admin"]),
     }
     _audit(request, "data_export")
     name = re.sub(r"[^\w\-.]", "_", user["username"]) or "user"
@@ -757,6 +762,8 @@ async def api_account_delete(request: Request):
     for vid in result.get("vehicles", []):
         for ext in (".jpg", ".jpeg", ".png", ".webp"):
             (photo_dir / f"v{vid}{ext}").unlink(missing_ok=True)
+    for stored in result.get("photos", []):
+        (PHOTO_DIR / stored).unlink(missing_ok=True)
     try:
         log_audit(me["user_id"], username, "account_delete", ip=client_ip(request))
     except Exception:
@@ -792,8 +799,10 @@ async def flight_list(request: Request):
         return redirect
     me = _current(request)
     flights = get_all_flights(me["user_id"], me["is_admin"])
+    covers = cover_map([f["filename"] for f in flights])
     return templates.TemplateResponse(request, "flights.html",
-                                      {"flights": flights, "is_admin": me["is_admin"]})
+                                      {"flights": flights, "is_admin": me["is_admin"],
+                                       "covers": covers})
 
 
 @app.get("/report", response_class=HTMLResponse)
@@ -1184,6 +1193,103 @@ async def api_import_gpx(filename: str, request: Request, file: UploadFile = Fil
         return JSONResponse({"error": str(e)}, status_code=400)
 
 
+@app.get("/api/flights/{filename:path}/photos")
+async def api_flight_photos(request: Request, filename: str):
+    """List photos for a flight (isolated to owner/admin)."""
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    flight = get_flight(filename, me["user_id"], me["is_admin"])
+    if not flight:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    photos = get_flight_photos(filename)
+    for p in photos:
+        p["url"] = f"/flight/api/flights/{quote(filename)}/photos/{p['id']}/img"
+    return photos
+
+
+@app.post("/api/flights/{filename:path}/photos")
+async def api_flight_photo_upload(filename: str, request: Request,
+                                  file: UploadFile = File(...)):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    flight = get_flight(filename, me["user_id"], me["is_admin"])
+    if not flight:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    if not file.filename or not file.filename.lower().endswith(
+            (".jpg", ".jpeg", ".png", ".webp")):
+        return JSONResponse({"error": "Only image files (jpg, png, webp) are supported"},
+                            status_code=400)
+    contents = await file.read()
+    if len(contents) > 10 * 1024 * 1024:
+        return JSONResponse({"error": "File too large (max 10 MB)"}, status_code=400)
+    PHOTO_DIR.mkdir(parents=True, exist_ok=True)
+    ext = Path(file.filename).suffix.lower() or ".jpg"
+    photo = add_flight_photo(filename, me["user_id"], f"tmp{ext}",
+                             file.filename)
+    stored_name = f"p{photo['id']}{ext}"
+    photo_path = PHOTO_DIR / stored_name
+    photo_path.write_bytes(contents)
+    with database._get_conn() as conn:
+        conn.execute("UPDATE flight_photos SET stored_name = ? WHERE id = ?",
+                     (stored_name, photo["id"]))
+    if len(get_flight_photos(filename)) == 1:
+        set_flight_cover(photo["id"], filename, me["user_id"], me["is_admin"])
+    _audit(request, "photo_upload", f"flight={filename}")
+    return {"id": photo["id"]}
+
+
+@app.get("/api/flights/{filename:path}/photos/{photo_id}/img")
+async def api_flight_photo_img(filename: str, photo_id: int, request: Request):
+    if not request.session.get("user_id"):
+        return HTMLResponse("", status_code=404)
+    me = _current(request)
+    flight = get_flight(filename, me["user_id"], me["is_admin"])
+    if not flight:
+        return HTMLResponse("", status_code=404)
+    photos = get_flight_photos(filename)
+    photo = next((p for p in photos if p["id"] == photo_id), None)
+    if not photo:
+        return HTMLResponse("", status_code=404)
+    p = PHOTO_DIR / photo["stored_name"]
+    if not p.exists():
+        return HTMLResponse("", status_code=404)
+    from fastapi.responses import FileResponse
+    resp = FileResponse(str(p))
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@app.post("/api/flights/{filename:path}/photos/{photo_id}/cover")
+async def api_photo_cover(filename: str, photo_id: int, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    if not get_flight(filename, me["user_id"], me["is_admin"]):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    if not set_flight_cover(photo_id, filename, me["user_id"], me["is_admin"]):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return {"ok": True}
+
+
+@app.delete("/api/flights/{filename:path}/photos/{photo_id}")
+async def api_flight_photo_delete(filename: str, photo_id: int, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    photo = delete_flight_photo(photo_id, me["user_id"], me["is_admin"])
+    if not photo:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    (PHOTO_DIR / photo["stored_name"]).unlink(missing_ok=True)
+    _audit(request, "photo_delete", f"{filename}")
+    return {"deleted": photo_id}
+
+
 @app.get("/api/flights/{filename:path}")
 async def api_flight(request: Request, filename: str):
     denied = require_api_auth(request)
@@ -1206,6 +1312,8 @@ async def api_delete(request: Request, filename: str):
     if not delete_flight(filename, me["user_id"], me["is_admin"]):
         return JSONResponse({"error": "not found"}, status_code=404)
     (LOG_DIR / filename).unlink(missing_ok=True)
+    for stored in delete_photos_for_flights([filename]):
+        (PHOTO_DIR / stored).unlink(missing_ok=True)
     _audit(request, "flight_delete", filename)
     return {"deleted": filename}
 
@@ -1982,6 +2090,8 @@ async def api_delete_user(user_id: int, request: Request):
     for vid in result.get("vehicles", []):
         for ext in (".jpg", ".jpeg", ".png", ".webp"):
             (photo_dir / f"v{vid}{ext}").unlink(missing_ok=True)
+    for stored in result.get("photos", []):
+        (PHOTO_DIR / stored).unlink(missing_ok=True)
     return {
         "deleted": user_id,
         "flights_deleted": len(result.get("flights", [])),
@@ -2205,6 +2315,18 @@ def _export_messages(user_id: int) -> list[dict]:
     for c in get_conversations_for(user_id):
         for m in get_thread(user_id, c["other_id"]):
             out.append(m)
+    return out
+
+
+def _export_photos(user_id: int, is_admin: bool) -> list[dict]:
+    """Photo metadata for every flight the user can access."""
+    out = []
+    for f in get_all_flights(user_id, is_admin):
+        for p in get_flight_photos(f["filename"]):
+            out.append({"flight": f["filename"], "stored_name": p["stored_name"],
+                        "original_name": p["original_name"] or "",
+                        "captured_at": p["captured_at"] or "",
+                        "is_cover": bool(p["is_cover"])})
     return out
 
 

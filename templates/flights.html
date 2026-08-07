@@ -63,6 +63,7 @@
             <thead>
                 <tr>
                     <th class="sel-col"><input type="checkbox" id="selectAllCb" title="Select all filtered"></th>
+                    <th>Cover</th>
                     <th>Date</th>
                     <th>Time</th>
                     <th>Duration</th>
@@ -79,6 +80,14 @@
             {% for f in flights %}
                 <tr class="flight-row" data-filename="{{ f.filename }}" data-date="{{ f.date }}" data-tags="{{ f.tags | join(',') }}" data-distance="{{ f.distance_km }}" data-alt="{{ f.max_alt_m }}" data-duration="{{ f.duration_s }}" {% if is_admin %}data-owner="{{ f.owner_username }}"{% endif %}>
                     <td class="sel-col"><input type="checkbox" class="row-cb" title="Select"></td>
+                    <td>
+                        {% set cover_id = covers.get(f.filename) %}
+                        {% if cover_id %}
+                        <a href="/flight/flight/{{ f.filename }}"><img class="cover-thumb" src="/flight/api/flights/{{ f.filename }}/photos/{{ cover_id }}/img" alt=""></a>
+                        {% else %}
+                        <span class="cover-thumb cover-empty"></span>
+                        {% endif %}
+                    </td>
                     <td>{{ f.date }}</td>
                     <td>{{ f.start_time }}</td>
                     <td>{{ f.duration_s | fmt_duration }}</td>

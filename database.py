@@ -127,6 +127,22 @@ def _migrate_007_messages(conn: sqlite3.Connection):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_recipient ON messages(recipient_id)")
 
 
+def _migrate_008_flight_photos(conn: sqlite3.Connection):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS flight_photos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            flight_filename TEXT NOT NULL,
+            owner_id INTEGER,
+            stored_name TEXT NOT NULL,
+            original_name TEXT,
+            captured_at TEXT,
+            is_cover INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_photos_flight ON flight_photos(flight_filename)")
+
+
 MIGRATIONS = [
     (2, "flights_owner_id", _migrate_002_flights_owner_id),
     (3, "vehicles_owner_id", _migrate_003_vehicles_owner_id),
@@ -134,6 +150,7 @@ MIGRATIONS = [
     (5, "users_email_confirmation", _migrate_005_users_email_confirmation),
     (6, "audit_log", _migrate_006_audit_log),
     (7, "messages", _migrate_007_messages),
+    (8, "flight_photos", _migrate_008_flight_photos),
 ]
 
 
@@ -966,19 +983,26 @@ def count_user_data(user_id: int) -> dict:
         messages = conn.execute(
             "SELECT COUNT(*) FROM messages WHERE sender_id = ? OR recipient_id = ?",
             (user_id, user_id)).fetchone()[0]
-    return {"flights": flights, "vehicles": vehicles, "messages": messages}
+        photos = conn.execute(
+            "SELECT COUNT(*) FROM flight_photos WHERE owner_id = ?", (user_id,)).fetchone()[0]
+    return {"flights": flights, "vehicles": vehicles, "messages": messages, "photos": photos}
 
 
 def delete_user_cascade(user_id: int) -> dict:
     """Delete a user plus all owned flights and vehicles (DB rows only).
 
     Returns the list of owned flight filenames (their CSV files must be
-    removed by the caller) and owned vehicle ids (for photo cleanup)."""
+    removed by the caller), owned vehicle ids (for photo cleanup) and owned
+    flight-photo stored_names (for file cleanup)."""
     with _get_conn() as conn:
         flight_files = [r[0] for r in conn.execute(
             "SELECT filename FROM flights WHERE owner_id = ?", (user_id,)).fetchall()]
         vehicle_ids = [r[0] for r in conn.execute(
             "SELECT id FROM vehicles WHERE owner_id = ?", (user_id,)).fetchall()]
+        photo_files = [r[0] for r in conn.execute(
+            "SELECT stored_name FROM flight_photos WHERE owner_id = ?",
+            (user_id,)).fetchall()]
+        conn.execute("DELETE FROM flight_photos WHERE owner_id = ?", (user_id,))
         conn.execute("DELETE FROM flights WHERE owner_id = ?", (user_id,))
         conn.execute("DELETE FROM vehicles WHERE owner_id = ?", (user_id,))
         # Remove messages and clean up conversation still linking the user.
@@ -992,7 +1016,8 @@ def delete_user_cascade(user_id: int) -> dict:
                 "(SELECT 1 FROM messages WHERE conversation_id = ?)",
                 (cid, cid))
         cur = conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
-    return {"flights": flight_files, "vehicles": vehicle_ids, "user_deleted": cur.rowcount > 0}
+    return {"flights": flight_files, "vehicles": vehicle_ids,
+            "photos": photo_files, "user_deleted": cur.rowcount > 0}
 
 
 def backup_database(dest_dir: Path) -> Path | None:
@@ -1246,6 +1271,118 @@ def delete_message_admin(message_id: int) -> bool:
             "WHERE id = ? AND NOT (deleted_by_sender = 1 AND deleted_by_recipient = 1)",
             (message_id,))
         return cur.rowcount > 0
+
+
+# --- Flight photos (F6) ---
+
+
+def add_flight_photo(flight_filename: str, owner_id: int, stored_name: str,
+                     original_name: str | None = None,
+                     captured_at: str | None = None) -> dict | None:
+    with _get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO flight_photos (flight_filename, owner_id, stored_name, "
+            "original_name, captured_at) VALUES (?, ?, ?, ?, ?)",
+            (flight_filename, owner_id, stored_name, original_name, captured_at))
+        pid = int(cur.lastrowid)
+    return get_flight_photo(pid)
+
+
+def get_flight_photo(photo_id: int) -> dict | None:
+    with _get_conn() as conn:
+        row = conn.execute("SELECT * FROM flight_photos WHERE id = ?", (photo_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_flight_photos(flight_filename: str) -> list[dict]:
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM flight_photos WHERE flight_filename = ? "
+            "ORDER BY is_cover DESC, id ASC", (flight_filename,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_cover_photo(flight_filename: str) -> dict | None:
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM flight_photos WHERE flight_filename = ? AND is_cover = 1 "
+            "ORDER BY id ASC LIMIT 1", (flight_filename,)).fetchone()
+    return dict(row) if row else None
+
+
+def cover_map(filenames: list[str]) -> dict[str, int | None]:
+    """{flight_filename: cover_photo_id} for the given files (batch, no N+1)."""
+    if not filenames:
+        return {}
+    marks = ",".join("?" for _ in filenames)
+    with _get_conn() as conn:
+        rows = conn.execute(
+            f"SELECT flight_filename, id FROM flight_photos "
+            f"WHERE flight_filename IN ({marks}) AND is_cover = 1",
+            filenames).fetchall()
+    return {r["flight_filename"]: r["id"] for r in rows}
+
+
+def delete_flight_photo(photo_id: int, owner_id: int, is_admin: bool = False) -> dict | None:
+    """Remove a photo (DB row). Returns the photo including stored_name so the
+    caller can delete the file. Enforces ownership unless admin."""
+    with _get_conn() as conn:
+        row = conn.execute("SELECT * FROM flight_photos WHERE id = ?", (photo_id,)).fetchone()
+        if not row:
+            return None
+        flight = conn.execute(
+            "SELECT owner_id FROM flights WHERE filename = ?", (row["flight_filename"],)).fetchone()
+        if not flight:
+            return None
+        if not is_admin and flight["owner_id"] != owner_id:
+            return None
+        conn.execute("DELETE FROM flight_photos WHERE id = ?", (photo_id,))
+        return dict(row)
+
+
+def set_flight_cover(photo_id: int, flight_filename: str, owner_id: int,
+                     is_admin: bool = False) -> bool:
+    """Mark a photo as the flight cover. Enforces ownership unless admin."""
+    with _get_conn() as conn:
+        photo = conn.execute("SELECT * FROM flight_photos WHERE id = ?",
+                             (photo_id,)).fetchone()
+        flight = conn.execute("SELECT owner_id FROM flights WHERE filename = ?",
+                              (flight_filename,)).fetchone()
+        if not photo or not flight or photo["flight_filename"] != flight_filename:
+            return False
+        if not is_admin and flight["owner_id"] != owner_id:
+            return False
+        conn.execute("UPDATE flight_photos SET is_cover = 0 "
+                     "WHERE flight_filename = ?", (flight_filename,))
+        conn.execute("UPDATE flight_photos SET is_cover = 1 WHERE id = ?", (photo_id,))
+        return True
+
+
+def photo_files_for_flights(flight_filenames: list[str]) -> list[str]:
+    """stored_names for all photos belonging to the given flights."""
+    if not flight_filenames:
+        return []
+    marks = ",".join("?" for _ in flight_filenames)
+    with _get_conn() as conn:
+        rows = conn.execute(
+            f"SELECT stored_name FROM flight_photos WHERE flight_filename IN ({marks})",
+            flight_filenames).fetchall()
+    return [r["stored_name"] for r in rows]
+
+
+def delete_photos_for_flights(flight_filenames: list[str]) -> list[str]:
+    """Delete photo rows for the flights and return their stored names."""
+    if not flight_filenames:
+        return []
+    marks = ",".join("?" for _ in flight_filenames)
+    with _get_conn() as conn:
+        rows = conn.execute(
+            f"SELECT stored_name FROM flight_photos WHERE flight_filename IN ({marks})",
+            flight_filenames).fetchall()
+        names = [r["stored_name"] for r in rows]
+        conn.execute(f"DELETE FROM flight_photos WHERE flight_filename IN ({marks})",
+                     flight_filenames)
+    return names
 
 
 init_db()

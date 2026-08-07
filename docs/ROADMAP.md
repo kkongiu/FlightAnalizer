@@ -5,7 +5,7 @@ la fase di implementazione e la lista è in ordine di esecuzione: ogni fase va
 completata prima di passare alla successiva.
 
 Ogni voce corrisponde a un'issue GitHub: il numero `[#N]` è il riferimento.
-Stato: **F0–F5 completate** (F2 include registrazione con conferma via email e consenso privacy; F4 include export dati, cancellazione self-service e audit log; F5 include messaggistica privata con badge non letti, notifiche email e allegato volo); F6–F8 pending.
+Stato: **F0–F6 completate** (F2 include registrazione con conferma via email e consenso privacy; F4 include export dati, cancellazione self-service e audit log; F5 include messaggistica privata con badge non letti, notifiche email e allegato volo; F6 include galleria foto per volo con copertina); F7–F8 pending.
 
 ---
 
@@ -58,11 +58,11 @@ Stato: **F0–F5 completate** (F2 include registrazione con conferma via email e
 
 ## F6 · Foto
 
-- [ ] `[F6][FOTO]` Caricamento/gestione foto per volo (backend, storage, validazione, dimensione) — [#30](https://github.com/kkongiu/FlightAnalizer/issues/30)
-- [ ] `[F6][FOTO]` Galleria nella pagina volo (thumbnails, lightbox, eliminazione singola) — [#31](https://github.com/kkongiu/FlightAnalizer/issues/31)
-- [ ] `[F6][FOTO]` Integrazione con isolamento: solo il proprietario (o admin) carica/gestisce le foto — [#32](https://github.com/kkongiu/FlightAnalizer/issues/32)
-- [ ] `[F6][FOTO]` Copertina del volo e anteprima nelle liste/dashboard — [#33](https://github.com/kkongiu/FlightAnalizer/issues/33)
-- [ ] `[F6][FOTO]` Eventuale associazione foto al punto del tracciato (timestamp/geotag) e inserimento nella condivisione — [#34](https://github.com/kkongiu/FlightAnalizer/issues/34)
+- [x] `[F6][FOTO]` Caricamento/gestione foto per volo (backend, storage, validazione, dimensione) — [#30](https://github.com/kkongiu/FlightAnalizer/issues/30)
+- [x] `[F6][FOTO]` Galleria nella pagina volo (thumbnails, lightbox, eliminazione singola) — [#31](https://github.com/kkongiu/FlightAnalizer/issues/31)
+- [x] `[F6][FOTO]` Integrazione con isolamento: solo il proprietario (o admin) carica/gestisce le foto — [#32](https://github.com/kkongiu/FlightAnalizer/issues/32)
+- [x] `[F6][FOTO]` Copertina del volo e anteprima nelle liste/dashboard — [#33](https://github.com/kkongiu/FlightAnalizer/issues/33)
+- [ ] `[F6][FOTO]` Eventuale associazione foto al punto del tracciato (timestamp/geotag) e inserimento nella condivisione (dipende da F7) — [#34](https://github.com/kkongiu/FlightAnalizer/issues/34)
 
 ## F7 · Sharing e social
 

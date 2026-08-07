@@ -103,6 +103,16 @@
         </div>
     </div>
 
+    <div class="events-section" id="photosSection" {% if not request.session.get('user_id') %}style="display:none;"{% endif %}>
+        <h3>Photos</h3>
+        <div class="photo-gallery" id="photoGallery">
+            <div class="photo-upload">
+                <label class="btn-primary" for="photoFileInput" style="font-size:0.75rem;padding:0.3rem 0.7rem;cursor:pointer;">+ Add photos</label>
+                <input type="file" id="photoFileInput" accept=".jpg,.jpeg,.png,.webp" multiple style="display:none;">
+            </div>
+        </div>
+    </div>
+
     <div class="events-section" id="eventsSection" style="display:none;">
         <h3>Flight Events</h3>
         <div class="events-timeline" id="eventsTimeline"></div>
@@ -1319,5 +1329,102 @@ timeCharts = ['altitudeChart', 'speedChart', 'rssiChart', 'batteryChart', 'navCh
     .map(id => Chart.getChart(document.getElementById(id)))
     .filter(Boolean);
 updateChartCursor(0);
+
+// ---- Photo gallery (F6) ----
+(function() {
+    const gal = document.getElementById('photoGallery');
+    if (!gal) return;
+    const flip = (s) => s.replace(/[&<>"']/g,
+        c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+    function photoUrl(pid) {
+        return '/flight/api/flights/' + encodeURIComponent(filename) + '/photos/' + pid + '/img';
+    }
+
+    async function loadPhotos() {
+        try {
+            const res = await fetch('/flight/api/flights/' + encodeURIComponent(filename) + '/photos');
+            if (!res.ok) return;
+            const photos = await res.json();
+            renderPhotos(photos);
+        } catch(e) {}
+    }
+
+    function renderPhotos(photos) {
+        let controls = '<div class="photo-upload">' +
+            '<label class="btn-primary" for="photoFileInput" style="font-size:0.75rem;padding:0.3rem 0.7rem;cursor:pointer;">+ Add photos</label>' +
+            '<input type="file" id="photoFileInput" accept=".jpg,.jpeg,.png,.webp" multiple style="display:none;">' +
+            '</div>';
+        let tiles = '';
+        photos.forEach(p => {
+            tiles += '<div class="photo-item' + (p.is_cover ? ' is-cover' : '') + '">' +
+                '<img src="' + photoUrl(p.id) + '" data-pid="' + p.id + '" alt="" class="photo-thumb">' +
+                '<div class="photo-actions">' +
+                (p.is_cover ? '<span class="photo-cover-tag">Cover</span>' :
+                    '<button class="photo-btn" data-action="cover" data-pid="' + p.id + '">Set cover</button>') +
+                '<button class="photo-btn photo-del" data-action="delete" data-pid="' + p.id + '">Delete</button>' +
+                '</div></div>';
+        });
+        gal.innerHTML = controls + tiles;
+        const inp = document.getElementById('photoFileInput');
+        if (inp) inp.addEventListener('change', onUpload);
+        gal.querySelectorAll('.photo-thumb').forEach(img =>
+            img.addEventListener('click', () => openLightbox(img.getAttribute('data-pid'))));
+        gal.querySelectorAll('.photo-btn[data-action="cover"]').forEach(b =>
+            b.addEventListener('click', () => setCover(b.getAttribute('data-pid'))));
+        gal.querySelectorAll('.photo-btn[data-action="delete"]').forEach(b =>
+            b.addEventListener('click', () => delPhoto(b.getAttribute('data-pid'))));
+    }
+
+    async function onUpload(e) {
+        const files = Array.from(e.target.files || []);
+        if (!files.length) return;
+        for (const f of files) {
+            const fd = new FormData();
+            fd.append('file', f);
+            try {
+                await fetch('/flight/api/flights/' + encodeURIComponent(filename) + '/photos', {
+                    method: 'POST',
+                    body: fd
+                });
+            } catch(err) {}
+        }
+        loadPhotos();
+    }
+
+    async function setCover(pid) {
+        const res = await fetch('/flight/api/flights/' + encodeURIComponent(filename) + '/photos/' + pid + '/cover', {method: 'POST'});
+        if (res.ok) loadPhotos();
+    }
+
+    async function delPhoto(pid) {
+        if (!confirm('Delete this photo?')) return;
+        const res = await fetch('/flight/api/flights/' + encodeURIComponent(filename) + '/photos/' + pid, {method: 'DELETE'});
+        if (res.ok) loadPhotos();
+    }
+
+    function openLightbox(src, idx, photos) {
+        let lb = document.getElementById('lightbox');
+        if (!lb) {
+            lb = document.createElement('div');
+            lb.id = 'lightbox';
+            lb.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.9);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:zoom-out;';
+            document.body.appendChild(lb);
+        }
+        const img = document.createElement('img');
+        img.src = src;
+        img.style.cssText = 'max-width:92vw;max-height:92vh;border-radius:8px;';
+        lb.innerHTML = '';
+        lb.appendChild(img);
+        lb.style.display = 'flex';
+        lb.onclick = () => { lb.style.display = 'none'; lb.innerHTML = ''; };
+    }
+
+    function openLight(pid) {
+        openLightbox(photoUrl(pid), 0, null);
+    }
+
+    loadPhotos();
+})();
 </script>
 {% endblock %}
