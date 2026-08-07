@@ -32,8 +32,14 @@
             <label class="btn-primary" for="gpxFileInput" style="font-size:0.7rem;padding:0.25rem 0.6rem;cursor:pointer;" id="importGpxLabel">Import GPX</label>
             <input type="file" id="gpxFileInput" accept=".gpx" style="display:none;">
             <button class="btn-primary" id="rescanNavBtn" style="font-size:0.7rem;padding:0.25rem 0.6rem;">Rescan Nav</button>
+            <button class="btn-primary" id="shareBtn" style="font-size:0.7rem;padding:0.25rem 0.6rem;">🔗 Share</button>
             <button class="btn-danger" id="deleteBtn" style="font-size:0.7rem;padding:0.25rem 0.6rem;">Delete</button>
         </div>
+    </div>
+
+    <div id="sharePanel" class="card" style="display:none;padding:0.75rem;margin-bottom:0.75rem;">
+        <h4 style="font-size:0.8rem;font-weight:700;margin-bottom:0.5rem;">Public sharing</h4>
+        <div id="shareList"></div>
     </div>
 
     <div class="map-section">
@@ -1425,6 +1431,61 @@ updateChartCursor(0);
     }
 
     loadPhotos();
+
+    // --- Sharing (F7) ---
+    const sharePanel = document.getElementById('sharePanel');
+    const shareList = document.getElementById('shareList');
+
+    async function loadShares() {
+        const res = await fetch('/flight/api/flights/' + encodeURIComponent(filename) + '/shares');
+        if (!res.ok) return;
+        const shares = await res.json();
+        renderShares(shares);
+    }
+
+    function renderShares(shares) {
+        if (!shares || !shares.length) {
+            shareList.innerHTML = '<p style="font-size:0.75rem;color:#aaa;margin-bottom:0.5rem;">No public links yet.</p>';
+        } else {
+            shareList.innerHTML = shares.map(s => {
+                const dot = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:0.3rem;' +
+                    (s.enabled ? 'background:#22c55e;' : 'background:#ef4444;') + '"></span>';
+                const label = s.enabled ? 'Disable' : 'Enable';
+                return '<div style="display:flex;align-items:center;gap:0.5rem;font-size:0.75rem;margin-bottom:0.4rem;flex-wrap:wrap;">' +
+                    dot +
+                    '<a href="/flight/r/' + s.token + '" target="_blank" style="color:#38bdf8;word-break:break-all;flex:1;">' + s.url + '</a>' +
+                    '<button class="btn-primary" data-a="copy" data-t="' + s.token + '" style="font-size:0.7rem;padding:0.2rem 0.5rem;">Copy</button>' +
+                    '<button class="btn-primary" data-a="toggle" data-id="' + s.id + '" style="font-size:0.7rem;padding:0.2rem 0.5rem;">' + label + '</button>' +
+                    '<button class="btn-danger" data-a="revoke" data-id="' + s.id + '" style="font-size:0.7rem;padding:0.2rem 0.5rem;">Revoke</button>' +
+                    '</div>';
+            }).join('');
+        }
+        shareList.querySelectorAll('button[data-a]').forEach(b =>
+            b.addEventListener('click', () => shareAction(b)));
+    }
+
+    async function shareAction(btn) {
+        const a = btn.getAttribute('data-a');
+        const id = btn.getAttribute('data-id');
+        const token = btn.getAttribute('data-t');
+        if (a === 'copy') {
+            navigator.clipboard && navigator.clipboard.writeText('/flight/r/' + token);
+            btn.textContent = 'Copied!';
+            setTimeout(() => btn.textContent = 'Copy', 1200);
+            return;
+        }
+        const url = '/flight/api/shares/' + id + (a === 'revoke' ? '' : '/toggle');
+        const res = await fetch(url, {method: a === 'revoke' ? 'DELETE' : 'POST'});
+        if (res.ok) loadShares();
+    }
+
+    document.getElementById('shareBtn').addEventListener('click', async () => {
+        sharePanel.style.display = sharePanel.style.display === 'none' ? 'block' : 'none';
+        if (sharePanel.style.display === 'block') {
+            const res = await fetch('/flight/api/flights/' + encodeURIComponent(filename) + '/share', {method: 'POST'});
+            if (res.ok) loadShares();
+        }
+    });
 })();
 </script>
 {% endblock %}

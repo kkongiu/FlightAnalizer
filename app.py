@@ -43,8 +43,13 @@ from database import (save_flight, get_all_flights, get_flight, delete_flight,
                       mark_thread_read, unread_message_count,
                       delete_conversation_for, get_all_conversations,
                       delete_message_admin, get_conversation_by_pair,
-                      add_flight_photo, get_flight_photos, delete_flight_photo,
-                      set_flight_cover, delete_photos_for_flights, cover_map)
+                      add_flight_photo, get_flight_photos, get_cover_photo, delete_flight_photo,
+                      set_flight_cover, delete_photos_for_flights, cover_map,
+                      create_share, get_share, get_share_by_token,
+                      get_shares_for_flight, set_share_enabled, delete_share,
+                      delete_shares_for_flights, add_comment, get_comments,
+                      add_like, remove_like, get_likes,
+                      user_likes)
 import httpx
 import backup
 import mailer
@@ -1290,6 +1295,82 @@ async def api_flight_photo_delete(filename: str, photo_id: int, request: Request
     return {"deleted": photo_id}
 
 
+# --- Sharing (F7): owner management ---
+
+
+@app.post("/api/flights/{filename:path}/share")
+async def api_flight_share_create(filename: str, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    flight = get_flight(filename, me["user_id"], me["is_admin"])
+    if not flight:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    share = create_share(filename, me["user_id"])
+    if not share:
+        return JSONResponse({"error": "could not create share"}, status_code=400)
+    _audit(request, "share_create", filename)
+    return _shares_with_urls(get_shares_for_flight(filename))
+
+
+@app.get("/api/flights/{filename:path}/shares")
+async def api_share_list(filename: str, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    flight = get_flight(filename, me["user_id"], me["is_admin"])
+    if not flight:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return _shares_with_urls(get_shares_for_flight(filename))
+
+
+@app.post("/api/shares/{share_id}/toggle")
+async def api_share_toggle(share_id: int, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    share = get_share(share_id)
+    if not share or not _share_owner_or_admin(share["owner_id"], me):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    set_share_enabled(share_id, not share["enabled"])
+    _audit(request, "share_toggle", f"{share['flight_filename']}")
+    return _shares_with_urls(get_shares_for_flight(share["flight_filename"]))
+
+
+@app.delete("/api/shares/{share_id}")
+async def api_share_revoke(share_id: int, request: Request):
+    denied = require_api_auth(request)
+    if denied:
+        return denied
+    me = _current(request)
+    share = get_share(share_id)
+    if not share or not _share_owner_or_admin(share["owner_id"], me):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    delete_share(share_id)
+    _audit(request, "share_revoke", f"{share['flight_filename']}")
+    return {"revoked": True}
+
+
+def _shares_with_urls(rows: list[dict]) -> list[dict]:
+    for s in rows:
+        s["url"] = share_public_url(s["token"])
+    return rows
+
+
+def _share_owner_or_admin(owner_id: int | None, me: dict) -> bool:
+    return bool(me.get("is_admin") or (owner_id and owner_id == me.get("user_id")))
+
+
+def share_public_url(token: str) -> str:
+    base = PUBLIC_URL
+    if not base:
+        return f"/r/{token}"
+    return f"{base}/r/{token}"
+
+
 @app.get("/api/flights/{filename:path}")
 async def api_flight(request: Request, filename: str):
     denied = require_api_auth(request)
@@ -1314,6 +1395,7 @@ async def api_delete(request: Request, filename: str):
     (LOG_DIR / filename).unlink(missing_ok=True)
     for stored in delete_photos_for_flights([filename]):
         (PHOTO_DIR / stored).unlink(missing_ok=True)
+    delete_shares_for_flights([filename])
     _audit(request, "flight_delete", filename)
     return {"deleted": filename}
 
@@ -2359,6 +2441,129 @@ def notify_new_message_notification(recipient: dict, sender: dict, text: str,
     except Exception:
         logger = logging.getLogger(__name__)
         logger.warning("failed to send message notification email", exc_info=True)
+
+
+# --- Public sharing (F7): view, social, og, gpx, comments/likes ---
+
+
+def _resolve_public_share(token: str) -> tuple[dict | None, dict | None]:
+    """Return (share, flight) for a valid enabled share, else (None, None)."""
+    share = get_share_by_token(token)
+    if not share:
+        return None, None
+    flight = get_flight(share["flight_filename"], None, True)
+    if not flight:
+        return None, None
+    return share, flight
+
+
+_PUBLIC_FLIGHT_KEYS = ["filename", "date", "start_time", "duration_s",
+                       "distance_km", "max_alt_m", "min_alt_m", "avg_alt_m",
+                       "max_speed_kmh", "avg_speed_kmh", "max_vspd_ms",
+                       "max_rssi_db", "min_rssi_db", "avg_rssi_db",
+                       "battery_start_v", "battery_end_v", "battery_start_pct",
+                       "battery_end_pct", "flight_modes", "home_distance_km",
+                       "glide_ratio", "max_g", "avg_g", "coordinates"]
+
+
+def _public_flight_payload(flight: dict) -> dict:
+    return {k: flight.get(k) for k in _PUBLIC_FLIGHT_KEYS}
+
+
+@app.get("/r/{token}", response_class=HTMLResponse)
+async def public_share_page(token: str, request: Request):
+    share, flight = _resolve_public_share(token)
+    if not share:
+        return HTMLResponse("Shared flight not found or revoked", status_code=404)
+    cover = get_cover_photo(flight["filename"])
+    og_image = f"/r/{token}/cover" if cover else ""
+    return templates.TemplateResponse(request, "share.html", {
+        "flight": _public_flight_payload(flight),
+        "token": token,
+        "owner": get_user_by_id(share["owner_id"]),
+        "og_image": og_image,
+        "og_url": share_public_url(token),
+        "page_title": f"{flight.get('date')} {flight.get('start_time')} - Shared Flight",
+    })
+
+
+@app.get("/r/{token}/gpx")
+async def public_share_gpx(token: str):
+    share, flight = _resolve_public_share(token)
+    if not share:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    coords = flight.get("coordinates", [])
+    safe_name = _xml_escape(flight["filename"])
+    from datetime import timezone as _tz
+    lines = ['<?xml version="1.0" encoding="UTF-8"?>',
+             '<gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1">',
+             f'  <trk><name>{safe_name}</name><trkseg>']
+    for c in coords:
+        t = datetime.fromtimestamp(c[4], tz=_tz.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if c[4] else ""
+        lines.append(f'    <trkpt lat="{c[0]}" lon="{c[1]}"><ele>{c[2]}</ele><time>{t}</time></trkpt>')
+    lines.append('  </trkseg></trk></gpx>')
+    return HTMLResponse("\n".join(lines), media_type="application/gpx+xml",
+                        headers={"Content-Disposition": f'attachment; filename="{safe_name}.gpx"'})
+
+
+@app.get("/r/{token}/cover")
+async def public_share_cover(token: str, request: Request):
+    share, flight = _resolve_public_share(token)
+    if not share:
+        return HTMLResponse("", status_code=404)
+    cover = get_cover_photo(flight["filename"])
+    if not cover:
+        return HTMLResponse("", status_code=404)
+    p = PHOTO_DIR / cover["stored_name"]
+    if not p.exists():
+        return HTMLResponse("", status_code=404)
+    from fastapi.responses import FileResponse
+    return FileResponse(str(p))
+
+
+# --- public board API (no login) ---
+
+
+@app.get("/public/api/board/{token}")
+async def api_public_board(token: str):
+    share, flight = _resolve_public_share(token)
+    if not share:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return {
+        "share_id": share["id"],
+        "flight": _public_flight_payload(flight),
+        "comments": get_comments(share["id"]),
+        "likes": len(get_likes(share["id"])),
+    }
+
+
+@app.post("/public/api/board/{token}/comments")
+async def api_public_comment_add(token: str, request: Request):
+    share, _ = _resolve_public_share(token)
+    if not share:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    body = await request.json()
+    username = (str(body.get("username", "")).strip()[:80] or "Guest")
+    comment = add_comment(share["id"], username, str(body.get("body", "")))
+    if not comment:
+        return JSONResponse({"error": "comment is empty"}, status_code=400)
+    return comment
+
+
+@app.post("/public/api/board/{token}/like")
+async def api_public_like_toggle(token: str, request: Request):
+    share, _ = _resolve_public_share(token)
+    if not share:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    body = await request.json()
+    username = (str(body.get("username", "")).strip() or "Guest")
+    if user_likes(share["id"], username):
+        remove_like(share["id"], username)
+        liked = False
+    else:
+        add_like(share["id"], username)
+        liked = True
+    return {"liked": liked, "count": len(get_likes(share["id"]))}
 
 
 # Auto-sync: merge nav telemetry for all flights and recompute derived metrics

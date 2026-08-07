@@ -143,6 +143,38 @@ def _migrate_008_flight_photos(conn: sqlite3.Connection):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_photos_flight ON flight_photos(flight_filename)")
 
 
+def _migrate_009_sharing(conn: sqlite3.Connection):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS shares (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            flight_filename TEXT NOT NULL,
+            owner_id INTEGER,
+            token TEXT NOT NULL UNIQUE,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS comments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            share_id INTEGER NOT NULL REFERENCES shares(id) ON DELETE CASCADE,
+            username TEXT NOT NULL,
+            body TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS likes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            share_id INTEGER NOT NULL REFERENCES shares(id) ON DELETE CASCADE,
+            username TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE (share_id, username)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_shares_flight ON shares(flight_filename)")
+
+
 MIGRATIONS = [
     (2, "flights_owner_id", _migrate_002_flights_owner_id),
     (3, "vehicles_owner_id", _migrate_003_vehicles_owner_id),
@@ -151,6 +183,7 @@ MIGRATIONS = [
     (6, "audit_log", _migrate_006_audit_log),
     (7, "messages", _migrate_007_messages),
     (8, "flight_photos", _migrate_008_flight_photos),
+    (9, "sharing", _migrate_009_sharing),
 ]
 
 
@@ -1004,6 +1037,11 @@ def delete_user_cascade(user_id: int) -> dict:
             (user_id,)).fetchall()]
         conn.execute("DELETE FROM flight_photos WHERE owner_id = ?", (user_id,))
         conn.execute("DELETE FROM flights WHERE owner_id = ?", (user_id,))
+        # Shares: cascade deletes comments/likes via FK; remove shares for owned flights.
+        if flight_files:
+            marks = ",".join("?" for _ in flight_files)
+            conn.execute(f"DELETE FROM shares WHERE flight_filename IN ({marks})",
+                         flight_files)
         conn.execute("DELETE FROM vehicles WHERE owner_id = ?", (user_id,))
         # Remove messages and clean up conversation still linking the user.
         conv_ids = [r[0] for r in conn.execute(
@@ -1383,6 +1421,141 @@ def delete_photos_for_flights(flight_filenames: list[str]) -> list[str]:
         conn.execute(f"DELETE FROM flight_photos WHERE flight_filename IN ({marks})",
                      flight_filenames)
     return names
+
+
+# --- Sharing (F7) ---
+
+
+def create_share(flight_filename: str, owner_id: int) -> dict | None:
+    token = secrets.token_urlsafe(24)
+    with _get_conn() as conn:
+        try:
+            cur = conn.execute(
+                "INSERT INTO shares (flight_filename, owner_id, token) "
+                "VALUES (?, ?, ?)", (flight_filename, owner_id, token))
+            share_id = int(cur.lastrowid)
+        except sqlite3.IntegrityError:
+            return None
+    return get_share(share_id)
+
+
+def get_share(share_id: int) -> dict | None:
+    with _get_conn() as conn:
+        row = conn.execute("SELECT * FROM shares WHERE id = ?", (share_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_share_by_token(token: str) -> dict | None:
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM shares WHERE token = ? AND enabled = 1", (token,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_shares_for_flight(flight_filename: str) -> list[dict]:
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM shares WHERE flight_filename = ? ORDER BY id DESC",
+            (flight_filename,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def set_share_enabled(share_id: int, enabled: bool) -> bool:
+    with _get_conn() as conn:
+        cur = conn.execute("UPDATE shares SET enabled = ? WHERE id = ?",
+                           (1 if enabled else 0, share_id))
+        return cur.rowcount > 0
+
+
+def delete_share(share_id: int) -> bool:
+    with _get_conn() as conn:
+        cur = conn.execute("DELETE FROM shares WHERE id = ?", (share_id,))
+        return cur.rowcount > 0
+
+
+def delete_shares_for_flights(flight_filenames: list[str]) -> None:
+    if not flight_filenames:
+        return
+    marks = ",".join("?" for _ in flight_filenames)
+    with _get_conn() as conn:
+        conn.execute(f"DELETE FROM shares WHERE flight_filename IN ({marks})",
+                     flight_filenames)
+
+
+# --- Comments & likes (F7 #39) ---
+
+
+def add_comment(share_id: int, username: str, body: str) -> dict | None:
+    body = body.strip()
+    if not body:
+        return None
+    with _get_conn() as conn:
+        share = conn.execute("SELECT id FROM shares WHERE id = ? AND enabled = 1",
+                             (share_id,)).fetchone()
+        if not share:
+            return None
+        cur = conn.execute(
+            "INSERT INTO comments (share_id, username, body) VALUES (?, ?, ?)",
+            (share_id, username[:80], body[:2000]))
+        cid = int(cur.lastrowid)
+        row = conn.execute("SELECT * FROM comments WHERE id = ?", (cid,)).fetchone()
+    return dict(row)
+
+
+def get_comments(share_id: int) -> list[dict]:
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM comments WHERE share_id = ? ORDER BY id ASC",
+            (share_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_comment(comment_id: int, share_id: int) -> bool:
+    with _get_conn() as conn:
+        cur = conn.execute(
+            "DELETE FROM comments WHERE id = ? AND share_id = ?", (comment_id, share_id))
+        return cur.rowcount > 0
+
+
+def add_like(share_id: int, username: str) -> bool:
+    with _get_conn() as conn:
+        try:
+            cur = conn.execute(
+                "INSERT INTO likes (share_id, username) VALUES (?, ?)",
+                (share_id, username))
+            return cur.rowcount > 0
+        except sqlite3.IntegrityError:
+            return False
+
+
+def remove_like(share_id: int, username: str) -> bool:
+    with _get_conn() as conn:
+        cur = conn.execute(
+            "DELETE FROM likes WHERE share_id = ? AND username = ?",
+            (share_id, username))
+        return cur.rowcount > 0
+
+
+def get_likes(share_id: int) -> list[dict]:
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT username FROM likes WHERE share_id = ? ORDER BY id ASC",
+            (share_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def user_likes(share_id: int, username: str) -> bool:
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM likes WHERE share_id = ? AND username = ?",
+            (share_id, username)).fetchone()
+    return row is not None
+
+
+def delete_comments_likes_for_share(share_id: int) -> None:
+    with _get_conn() as conn:
+        conn.execute("DELETE FROM comments WHERE share_id = ?", (share_id,))
+        conn.execute("DELETE FROM likes WHERE share_id = ?", (share_id,))
 
 
 init_db()

@@ -452,11 +452,12 @@ Done so far:
 - [x] **F4 · Privacy** — self-service data export (GDPR art. 20) and account deletion, audit log viewer, privacy/terms page
 - [x] **F5 · Messaggi e notifiche** — private messaging with conversations and unread badge, email notifications, flight attachment (isolation-aware), admin conversation management
 - [x] **F6 · Foto** — per-flight photo gallery (upload, lightbox, single delete), cover photos with list previews, owner/admin-only management
+- [x] **F7 · Sharing** — public share links with revoke/toggle, public view page (map/stats, no login), social share buttons, og:image preview, public GPX download, comments/likes board
 
 Next (by phase):
 
-- **F7 · Sharing** — public share links, social buttons, comments/likes, team groups
 - **F8 · Dominio** — maintenance reminders, Excel/CSV export, API upload tokens, flight weather
+  (partial F7 extras still open: team groups, friend-style contacts/feed)
 
 Other ideas from the original roadmap are still on the list: battery cell-level analysis,
 PDF report export, drone model auto-detection, Betaflight / ArduPilot log support,

@@ -5,7 +5,7 @@ la fase di implementazione e la lista è in ordine di esecuzione: ogni fase va
 completata prima di passare alla successiva.
 
 Ogni voce corrisponde a un'issue GitHub: il numero `[#N]` è il riferimento.
-Stato: **F0–F6 completate** (F2 include registrazione con conferma via email e consenso privacy; F4 include export dati, cancellazione self-service e audit log; F5 include messaggistica privata con badge non letti, notifiche email e allegato volo; F6 include galleria foto per volo con copertina); F7–F8 pending.
+Stato: **F0–F6 completate** (F2 include registrazione con conferma via email e consenso privacy; F4 include export dati, cancellazione self-service e audit log; F5 include messaggistica privata con badge non letti, notifiche email e allegato volo; F6 include galleria foto per volo con copertina; F7 include link pubblici con pagine condivisibili, social, og:image, GPX pubblico, commenti/like). F8 pending.
 
 ---
 
@@ -66,11 +66,11 @@ Stato: **F0–F6 completate** (F2 include registrazione con conferma via email e
 
 ## F7 · Sharing e social
 
-- [ ] `[F7][SHARING]` Link pubblico di condivisione per volo (token sicuro, condivisione solo se abilitata dal proprietario, opzione revoca) — [#35](https://github.com/kkongiu/FlightAnalizer/issues/35)
-- [ ] `[F7][SHARING]` Pagina pubblica di visualizzazione volo (mappa/stats senza login) accessibile dal link — [#36](https://github.com/kkongiu/FlightAnalizer/issues/36)
-- [ ] `[F7][SHARING]` Pulsanti di condivisione social (WhatsApp, Telegram, X/Twitter, Facebook) con anteprima — [#37](https://github.com/kkongiu/FlightAnalizer/issues/37)
-- [ ] `[F7][SHARING]` Immagine/anteprima condivisibile (og:image, open graph) e eventuale download GPX dal link pubblico — [#38](https://github.com/kkongiu/FlightAnalizer/issues/38)
-- [ ] `[F7][SOCIAL]` Commenti/like sui voli condivisi pubblicamente — [#39](https://github.com/kkongiu/FlightAnalizer/issues/39)
+- [x] `[F7][SHARING]` Link pubblico di condivisione per volo (token sicuro, condivisione solo se abilitata dal proprietario, opzione revoca) — [#35](https://github.com/kkongiu/FlightAnalizer/issues/35)
+- [x] `[F7][SHARING]` Pagina pubblica di visualizzazione volo (mappa/stats senza login) accessibile dal link — [#36](https://github.com/kkongiu/FlightAnalizer/issues/36)
+- [x] `[F7][SHARING]` Pulsanti di condivisione social (WhatsApp, Telegram, X/Twitter, Facebook) con anteprima — [#37](https://github.com/kkongiu/FlightAnalizer/issues/37)
+- [x] `[F7][SHARING]` Immagine/anteprima condivisibile (og:image, open graph) e download GPX dal link pubblico — [#38](https://github.com/kkongiu/FlightAnalizer/issues/38)
+- [x] `[F7][SOCIAL]` Commenti/like sui voli condivisi pubblicamente — [#39](https://github.com/kkongiu/FlightAnalizer/issues/39)
 - [ ] `[F7][SOCIAL]` Gruppi/team: condividere un volo solo con un gruppo specifico — [#40](https://github.com/kkongiu/FlightAnalizer/issues/40)
 - [ ] `[F7][SOCIAL]` Amici/contatti stile Strava-Garmin: richieste di amicizia, feed dei voli pubblici dei propri contatti, visibilità per-volo (pubblico/amici/privato)
 
